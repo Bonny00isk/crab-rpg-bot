@@ -219,6 +219,12 @@ def register_extra(app, auth, user_json, bot=None):
         return web.json_response({"players":[{"rank":i+1,"nickname":r["nickname"],"level":r["crab_level"],"molts":r["molts"],"meters":r["max_meters"],"zone":get_depth_zone_name(r["max_meters"])} for i,r in enumerate(rows)]})
 
 
+
+    async def random_players(request):
+        uid,_=auth(request)
+        rows=await database.run_async(database.get_random_players,uid,5)
+        return web.json_response({"players":[{"nickname":p.get("nickname"),"level":p.get("crab_level",1),"molts":p.get("molts",0),"meters":p.get("max_meters",0),"zone":get_depth_zone_name(p.get("max_meters",0))} for p in rows]})
+
     async def player_search(request):
         uid,_=auth(request); body=await request.json(); name=str(body.get("nickname","")).strip()
         if not name or len(name)>32: raise web.HTTPBadRequest(text="Enter a nickname")
@@ -259,3 +265,4 @@ def register_extra(app, auth, user_json, bot=None):
     app.router.add_get("/api/leaderboard",leaderboard)
     app.router.add_post("/api/nickname",nickname)
     app.router.add_post("/api/player/search",player_search)
+    app.router.add_get("/api/players/random",random_players)
