@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Additional authenticated Mini App features: inventory, dig, lab, evolution and social."""
 import json, time
-from aiohttp import web
+from aiohttp import web\nfrom aiogram.types import LabeledPrice
 import database
 from data import (STONE_COLORS, RESOURCES, PASSIVE_MUTATIONS, ACTIVE_MUTATIONS,
                   NECTARS_DATA, EVOLUTION_NODES, DIG_DURATION_OPTIONS_HOURS,
@@ -12,7 +12,7 @@ from game_logic import (get_mutation_cost, cost_upgrade_mutation, can_molt,
                         roll_dig_loot, roll_dig_resources, roll_chest_loot, mythic_events_unlocked,
                         get_depth_zone_name, get_molt_rank, format_number)
 
-def register_extra(app, auth, user_json):
+def register_extra(app, auth, user_json, bot=None):
     async def data(request):
         uid,_=auth(request)
         u=await database.run_async(database.get_user,uid)
@@ -176,6 +176,18 @@ def register_extra(app, auth, user_json):
             await database.run_async(database.add_new_mutation_v3,uid,mutation["key"],1)
         return web.json_response({"ok":True,"loot":{"shells":loot.get("shells",0),"stones":[{"color":color,"level":level} for color,level in loot.get("stones",[])],"mutation":mutation}})
 
+
+    async def stars_invoice(request):
+        uid,_=auth(request)
+        if bot is None: raise web.HTTPServiceUnavailable(text="Telegram payments unavailable")
+        body=await request.json(); key=str(body.get("key",""))
+        item=SHOP_ITEMS.get(key)
+        if not item: raise web.HTTPBadRequest(text="Unknown shop item")
+        u=await database.run_async(database.get_user,uid)
+        if key=="eternal_tide" and u.get("permanent_boost"): raise web.HTTPConflict(text="Permanent boost already owned")
+        url=await bot.create_invoice_link(title=item["title"],description=item["description"],payload="shop:"+key,provider_token="",currency="XTR",prices=[LabeledPrice(label=item["title"],amount=int(item["stars"]))])
+        return web.json_response({"url":url,"stars":item["stars"]})
+
     async def store_info(request):
         uid,_=auth(request); u=await database.run_async(database.get_user,uid)
         return web.json_response({"shells":u.get("nautilus_shells",0),"stars_items":[{"key":k,**v} for k,v in SHOP_ITEMS.items()],"shell_items":[{"key":"speed_dig","title":"⏩ Ускорить копание","shells":3},{"key":"resource_pack","title":"🎁 Набор ресурсов","shells":5}]})
@@ -219,7 +231,7 @@ def register_extra(app, auth, user_json):
 
     app.router.add_get("/api/game-data",data)
     app.router.add_post("/api/molt",molt)
-    app.router.add_get("/api/shop",store_info)
+    app.router.add_get("/api/shop",store_info)\n    app.router.add_post("/api/shop/invoice",stars_invoice)
     app.router.add_post("/api/shop/shell",shell_shop)
     app.router.add_post("/api/promo",promo)
     app.router.add_post("/api/chest/open",open_chest)
