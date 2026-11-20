@@ -275,7 +275,7 @@ async def api_level_up_max(request):
     return web.json_response({"ok":True,"levels":count,"cost":total,"state":_user_json(await database.run_async(database.get_user,uid))})
 
 
-def setup_webapp(app):
+def setup_webapp(app, bot=None):
     app.router.add_get("/app", lambda request: web.FileResponse("webapp/index.html"))
     app.router.add_get("/app/", lambda request: web.FileResponse("webapp/index.html"))
     app.router.add_get("/api/state", api_state)
@@ -284,4 +284,4 @@ def setup_webapp(app):
     app.router.add_post("/api/level-up/max", api_level_up_max)
     app.router.add_post("/api/hunt", api_hunt)
     from webapp_extra import register_extra
-    register_extra(app, _auth, _user_json)
+    register_extra(app, _auth, _user_json, bot)
