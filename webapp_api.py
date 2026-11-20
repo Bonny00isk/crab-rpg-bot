@@ -11,11 +11,11 @@ from aiohttp import web
 
 import database
 from config import BOT_TOKEN
-from data import CRABS, UNIQUE_ABILITIES, SHIELD_ABILITY
+from data import CRABS, UNIQUE_ABILITIES, SHIELD_ABILITY, ELITE_ENCOUNTER_MULT
 from game_logic import (
     get_effective_stats, level_up_cost, get_depth_zone_name, get_molt_rank,
     roll_monster, player_attack, monster_attack, gold_reward, apply_idle_regen,
-    next_monster_meters,
+    next_monster_meters, is_guard_camp_meter, roll_guard_camp, is_elite_encounter_meter,
 )
 
 logger = logging.getLogger("crab-rpg-webapp")
@@ -161,8 +161,20 @@ async def api_hunt(request):
     now = int(time.time())
 
     if not user.get("in_hunt"):
-        meters = int(user.get("cur_meters") or 0) + 1
-        monster = roll_monster(meters)
+        current_meters = int(user.get("cur_meters") or 0)
+        meters = next_monster_meters(current_meters, mutations)
+        if meters <= current_meters:
+            raise web.HTTPConflict(text="Depth barrier: upgrade mutations to descend")
+        if is_guard_camp_meter(current_meters, meters):
+            camp = roll_guard_camp(meters)
+            monster = camp[0]
+            monster["camp_remaining"] = camp[1:]
+            monster["is_camp"] = True
+        elif is_elite_encounter_meter(current_meters, meters):
+            monster = roll_monster(meters, elite_mult=ELITE_ENCOUNTER_MULT)
+            monster["is_elite"] = True
+        else:
+            monster = roll_monster(meters)
         monster["meters"] = meters
         hp = apply_idle_regen(user, stats, now)
         started = await database.run_async(database.try_start_new_hunt, uid, json.dumps(monster, ensure_ascii=False), hp, now)
@@ -240,14 +252,24 @@ async def api_hunt(request):
     else:
         reward = gold_reward(monster, stats, user)
         meters = int(monster.get("meters", int(user.get("cur_meters") or 0) + 1))
-        updates = {
-            "in_hunt": 0, "monster_json": None, "cur_hp": stats["max_hp"],
-            "cur_meters": meters, "max_meters": max(int(user.get("max_meters") or 0), meters),
-            "kills": int(user.get("kills") or 0) + 1,
-            "gold": int(user.get("gold") or 0) + reward,
-            "total_earned_gold": int(user.get("total_earned_gold") or 0) + reward,
-        }
-        battle_log = f"Победа! +{reward} золота · глубина {meters} м"
+        new_gold = int(user.get("gold") or 0) + reward
+        new_total = int(user.get("total_earned_gold") or 0) + reward
+        new_kills = int(user.get("kills") or 0) + 1
+        camp_remaining = list(monster.get("camp_remaining") or [])
+        if camp_remaining:
+            next_monster = camp_remaining.pop(0)
+            next_monster["meters"] = meters
+            next_monster["is_camp"] = True
+            next_monster["camp_remaining"] = camp_remaining
+            updates = {"in_hunt":1,"monster_json":json.dumps(next_monster,ensure_ascii=False),"cur_hp":stats["max_hp"],"gold":new_gold,"total_earned_gold":new_total,"kills":new_kills}
+            battle_log = f"Лагерь: враг повержен, +{reward} золота. Следующий противник!"
+        else:
+            updates = {
+                "in_hunt": 0, "monster_json": None, "cur_hp": stats["max_hp"],
+                "cur_meters": meters, "max_meters": max(int(user.get("max_meters") or 0), meters),
+                "kills": new_kills, "gold": new_gold, "total_earned_gold": new_total,
+            }
+            battle_log = f"Победа! +{reward} золота · глубина {meters} м"
     applied = await database.run_async(database.try_apply_attack_result, uid, user["monster_json"], **updates)
     if not applied:
         raise web.HTTPConflict(text="Battle state changed. Refresh the game.")
