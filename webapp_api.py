@@ -11,7 +11,7 @@ from aiohttp import web
 
 import database
 from config import BOT_TOKEN
-from data import CRABS
+from data import CRABS, UNIQUE_ABILITIES, SHIELD_ABILITY
 from game_logic import (
     get_effective_stats, level_up_cost, get_depth_zone_name, get_molt_rank,
     roll_monster, player_attack, monster_attack, gold_reward, apply_idle_regen,
@@ -63,6 +63,7 @@ def _user_json(user):
         "nickname": user.get("nickname") or "Краб",
         "crab_type": crab_type,
         "crab_name": CRABS.get(crab_type, {}).get("name", "Краб"),
+        "unique": UNIQUE_ABILITIES.get(int(crab_type), {}),
         "crab_level": int(user.get("crab_level") or 1),
         "molts": int(user.get("molts") or 0),
         "gold": int(user.get("gold") or 0),
@@ -149,6 +150,8 @@ async def api_level_up(request):
 
 async def api_hunt(request):
     uid, _ = _auth(request)
+    body = await request.json()
+    action = body.get("action", "attack")
     user = await database.run_async(database.get_user, uid)
     if not user or not user.get("crab_type"):
         raise web.HTTPConflict(text="Choose your crab first")
@@ -174,13 +177,58 @@ async def api_hunt(request):
     if not monster or "hp" not in monster:
         await database.run_async(database.update_user, uid, in_hunt=0, monster_json=None)
         raise web.HTTPConflict(text="Battle reset. Press Hunt again.")
-    damage, critical, missed = player_attack(stats, monster.get("evasion", 0))
+
+    if action == "ability":
+        ability = body.get("ability")
+        if ability == "shield":
+            if int(monster.get("shield_cd",0)) > 0:
+                raise web.HTTPConflict(text="Shield is on cooldown")
+            monster["shield_active"] = True
+            monster["shield_cd"] = 3
+        elif ability == "unique":
+            if monster.get("unique_used"):
+                raise web.HTTPConflict(text="Unique ability already used this battle")
+            unique = UNIQUE_ABILITIES.get(int(user["crab_type"]), {})
+            key = unique.get("key")
+            monster["unique_used"] = True
+            if key == "crushing_blow":
+                monster["unique_damage_mult"] = float(unique.get("damage_mult",2.5))
+                monster["unique_self_cost_once"] = float(unique.get("self_damage_percent",20))/100
+            elif key == "sprint":
+                monster["sprint_turns"] = int(unique.get("sprint_turns",4))
+            elif key == "blood_rage":
+                monster["unique_blood_rage"] = True
+                monster["unique_self_cost_pct"] = float(unique.get("self_damage_percent",6))/100
+            else:
+                raise web.HTTPBadRequest(text="Unknown unique ability")
+        else:
+            raise web.HTTPBadRequest(text="Unknown ability")
+        saved = await database.run_async(database.try_apply_attack_result,uid,user["monster_json"],monster_json=json.dumps(monster,ensure_ascii=False))
+        if not saved: raise web.HTTPConflict(text="Battle state changed. Refresh.")
+        return web.json_response({"event":"ability","log":"Способность активирована","battle":{"name":monster["name"],"hp":monster["hp"],"max_hp":monster["max_hp"],"meters":monster.get("meters",0),"art":monster.get("art","")},"state":_user_json(await database.run_async(database.get_user,uid))})
+    if action != "attack":
+        raise web.HTTPBadRequest(text="Unknown battle action")
+
+    sprint = int(monster.get("sprint_turns",0)) > 0
+    damage, critical, missed = player_attack(stats, -100 if sprint else monster.get("evasion", 0), force_crit=bool(monster.get("unique_blood_rage")))
+    damage = int(damage * float(monster.get("unique_damage_mult",1.0)))
+    monster["unique_damage_mult"] = 1.0
     monster["hp"] = max(0, int(monster["hp"]) - damage)
     battle_log = "Промах!" if missed else (f"Критический удар: −{damage} HP" if critical else f"Ты наносишь −{damage} HP")
     updates = {}
     if monster["hp"] > 0:
         incoming, dodged = monster_attack(monster, stats)
+        if monster.get("shield_active"):
+            incoming = int(incoming * (1 - SHIELD_ABILITY.get("block_percent",80)/100))
+            monster["shield_active"] = False
+        if int(monster.get("shield_cd",0)) > 0: monster["shield_cd"] = max(0,int(monster["shield_cd"])-1)
         hp = max(0, float(user.get("cur_hp") or stats["max_hp"]) - incoming)
+        self_pct = float(monster.get("unique_self_cost_pct",0))
+        once_pct = float(monster.pop("unique_self_cost_once",0))
+        if self_pct or once_pct:
+            hp = max(0,hp - int(stats["max_hp"]*(self_pct+once_pct)))
+        if sprint:
+            monster["sprint_turns"] = max(0,int(monster.get("sprint_turns",0))-1)
         battle_log += " · " + ("Ты уклонился от ответа!" if dodged else f"Враг атакует: −{incoming} HP")
         if hp <= 0:
             back = max(0, int(user.get("cur_meters") or 0) - 1)
