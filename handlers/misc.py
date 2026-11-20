@@ -1,0 +1,189 @@
+# -*- coding: utf-8 -*-
+import json
+import time
+
+from aiogram import Router, F
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.fsm.context import FSMContext
+
+import database
+from data import (
+    HELP_PAGES, MYTHIC_EVENT_UNLOCK_MOLTS, MYTHIC_EVENT_UNLOCK_MAX_METERS, MYTHIC_EVENT_UNLOCK_KILLS,
+    MYTHIC_EVENTS
+)
+from game_logic import mythic_events_unlocked, get_depth_zone_name, format_number
+from keyboards import kb, BACK, help_pagination_kb
+from states import Nav
+
+router = Router()
+
+@router.message(Nav.misc, F.text == "🏆 Топ")
+async def show_top(message: Message, state: FSMContext):
+    await state.set_state(Nav.misc_detail)
+    top = await database.run_async(database.get_top_players, 10)
+    text = "🏆 <b>Топ игроков</b>\n\n"
+    if not top:
+        text += "Пока пусто."
+    else:
+        for i, p in enumerate(top, 1):
+            zone = get_depth_zone_name(p["max_meters"])
+            text += f"{i}. {p['nickname']} — {p['crab_level']} ур. ({p['molts']} линек, {zone})\n"
+    await message.answer(text, reply_markup=kb([BACK]))
+
+@router.message(Nav.misc, F.text == "❓ Помощь")
+async def show_help(message: Message, state: FSMContext):
+    await state.set_state(Nav.misc_detail)
+    title, text = HELP_PAGES[0]
+    await message.answer(f"<b>{title}</b>\n\n{text}", reply_markup=kb([BACK]))
+    await message.answer("Листай страницы:", reply_markup=help_pagination_kb(0, len(HELP_PAGES)))
+
+@router.callback_query(F.data.startswith("help_page_"))
+async def help_page(call: CallbackQuery):
+    page = int(call.data.split("_")[-1])
+    if not (0 <= page < len(HELP_PAGES)):
+        await call.answer()
+        return
+    title, text = HELP_PAGES[page]
+    await call.answer()
+    await call.message.edit_text(
+        f"<b>{title}</b>\n\n{text}", reply_markup=help_pagination_kb(page, len(HELP_PAGES))
+    )
+
+@router.message(Nav.misc, F.text == "📈 Статистика")
+async def show_stats(message: Message, state: FSMContext):
+    await state.set_state(Nav.misc_detail)
+    user = await database.run_async(database.get_user, message.from_user.id)
+    text = (
+        f"📈 <b>Статистика за всё время</b>\n\n"
+        f"Всего заработано золота: {format_number(user['total_earned_gold'])}\n"
+        f"Всего получено очков ДНК: {format_number(user['total_dna_earned'])}\n"
+        f"Убито существ: {format_number(user['kills'])}\n"
+        f"Убито боссов: {format_number(user['boss_kills'])}\n"
+        f"Линек пройдено: {user['molts']}\n"
+        f"Рекорд по пройденному пути: {format_number(user['max_meters'])} м ({get_depth_zone_name(user['max_meters'])})"
+    )
+    await message.answer(text, reply_markup=kb([BACK]))
+
+@router.message(Nav.misc, F.text == "🐉 Ивенты")
+async def show_events(message: Message, state: FSMContext):
+    await state.set_state(Nav.events)
+    user = await database.run_async(database.get_user, message.from_user.id)
+
+    if not mythic_events_unlocked(user):
+        await message.answer(
+            f"🐉 Мифические ивенты с боссами открываются, когда выполнишь ЛЮБОЕ из условий:\n\n"
+            f"• {MYTHIC_EVENT_UNLOCK_MOLTS}-я линька (у тебя: {user['molts']})\n"
+            f"• {MYTHIC_EVENT_UNLOCK_MAX_METERS} м. рекорд по пройденному пути (у тебя: {user['max_meters']})\n"
+            f"• {MYTHIC_EVENT_UNLOCK_KILLS} убитых существ (у тебя: {user['kills']})\n\n"
+            f"Продолжай играть в удобном тебе стиле — все три пути ведут к ивентам!",
+            reply_markup=kb([BACK]),
+        )
+        return
+
+    event = await database.run_async(database.get_active_event)
+    if not event:
+        await message.answer(
+            "Сейчас нет активных ивентов с боссами. Они запускаются автоматически — загляни позже! 🌊",
+            reply_markup=kb([BACK]),
+        )
+        return
+
+    left = event["ends_at"] - int(time.time())
+    hours = max(left, 0) // 3600
+    lb = await database.run_async(database.get_event_leaderboard, event["id"], 5)
+    text = (
+        f"🐉 <b>{event['name']}</b>\n\n"
+        f"{event['description']}\n\n"
+        f"⏳ До конца ивента: ~{hours} ч.\n\n"
+        f"<b>Топ по урону:</b>\n"
+    )
+    if lb:
+        for i, row in enumerate(lb, 1):
+            u = await database.run_async(database.get_user, row["user_id"])
+            name = u["nickname"] if u else row["user_id"]
+            text += f"{i}. {name} — {format_number(row['damage'])} урона\n"
+    else:
+        text += "пока никто не атаковал\n"
+
+    text += (
+        "\n💡 Награды зависят от нанесенного урона! Топ-3 получают самые редкие сундуки "
+        "(Жемчужный, Золотой, Роскошный), а остальные участники — Стандартный сундук. "
+        "Шанс на легендарную мутацию есть в каждом сундуке!"
+    )
+
+    ikb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="⚔️ Атаковать босса", callback_data=f"boss_attack_{event['id']}")
+    ]])
+    await message.answer(text, reply_markup=kb([BACK]))
+    await message.answer("Готов атаковать?", reply_markup=ikb)
+
+@router.callback_query(F.data.startswith("boss_attack_"))
+async def boss_attack(call: CallbackQuery, state: FSMContext):
+    user = await database.run_async(database.get_user, call.from_user.id)
+    if not mythic_events_unlocked(user):
+        await call.answer("Ивенты пока недоступны — смотри условия в разделе Ивенты.", show_alert=True)
+        return
+
+    # 🌟 Проверка на незаконченный обычный бой в быстрой памяти (защита буфера)
+    data = await state.get_data()
+    if "monster" in data:
+        await call.answer("Ты уже находишься в бою! Сначала закончи текущую охоту.", show_alert=True)
+        return
+
+    # Проверка кулдауна (3.5 часа = 12600 секунд)
+    now = int(time.time())
+    if user.get("boss_cooldown_ts") and user["boss_cooldown_ts"] > now:
+        left_minutes = (user["boss_cooldown_ts"] - now) // 60
+        await call.answer(f"Твой панцирь сломан! Восстановление: {left_minutes // 60} ч {left_minutes % 60} мин.", show_alert=True)
+        return
+
+    event_id = int(call.data.split("_")[-1])
+    event = await database.run_async(database.get_active_event)
+    if not event or event["id"] != event_id:
+        await call.answer("Ивент уже завершён.", show_alert=True)
+        return
+
+    boss_template = next((e for e in MYTHIC_EVENTS if e["name"] == event["name"]), MYTHIC_EVENTS[0])
+
+    boss_data = {
+        "is_boss": True,
+        "event_id": event["id"],
+        "name": event["name"],
+        "art": boss_template.get("art", "🐉"),
+        "hp_flavor": boss_template.get("hp_flavor", "Бессмертное существо..."),
+        "accumulated_damage": 0,
+        "meters": user.get("cur_meters", 0)  
+    }
+
+    # ИСПОЛЬЗУЕМ НОВУЮ ФУНКЦИЮ V3 ДЛЯ БОССА
+    from game_logic import get_effective_stats, get_equipped_special_effects
+    stones = await database.run_async(database.get_stones, call.from_user.id)
+    mutations = await database.run_async(database.get_user_mutations_v3, call.from_user.id)
+    stats = get_effective_stats(user, stones, mutations)
+    full_hp = stats["max_hp"]
+
+    await call.answer("Битва началась!")
+    await state.set_state(Nav.hunt)
+
+    from handlers.hunt import _render_single, _push_battle_update, _get_abilities
+    from keyboards import hunt_kb
+    
+    empty_nectars = {"active_nectar": None, "nectars_inv": {}, "strength_charges": 0, "combat_effects": {}}
+    text, ikb = _render_single(full_hp, stats["max_hp"], boss_data, user["crab_type"], empty_nectars)
+
+    await call.message.answer("🫧 Вглядываемся в муть...", reply_markup=hunt_kb(True))
+    sent = await call.message.answer(text, reply_markup=ikb)
+
+    fsm_data = {
+        "cur_hp": full_hp,
+        "stats": stats,
+        "specials": list(get_equipped_special_effects(mutations)),
+        "crab_type": user["crab_type"],
+        "cur_meters": user["cur_meters"],
+        "max_meters": user["max_meters"],
+        "monster": boss_data,
+        "abilities": _get_abilities(boss_data),
+        "battle_message_id": sent.message_id,
+        "nectars": empty_nectars
+    }
+    await state.update_data(**fsm_data)
