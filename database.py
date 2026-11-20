@@ -207,6 +207,11 @@ def get_user_mutations_v3(user_id):
         rows = conn.execute("SELECT * FROM mutations_v3 WHERE user_id=%s", (user_id,)).fetchall()
         return [dict(r) for r in rows]
 
+def get_mutations_v2(user_id):
+    # Compatibility alias: the current game uses the v3 mutation inventory.
+    return get_user_mutations_v3(user_id)
+
+
 def add_new_mutation_v3(user_id, variant_key, is_active):
     with closing(get_conn()) as conn, conn:
         conn.execute(
