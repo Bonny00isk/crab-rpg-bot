@@ -28,7 +28,7 @@ def register_extra(app, auth, user_json):
             "mutations":[{"key":m["variant_key"],"name":(ACTIVE_MUTATIONS if m["is_active"] else PASSIVE_MUTATIONS).get(m["variant_key"],{}).get("name",m["variant_key"]),"active":bool(m["is_active"]),"level":m["level"],"equipped":bool(m["equipped"])} for m in muts],
             "chests":[{"key":k,"name":EVENT_CHESTS.get(int(k) if str(k).isdigit() else k,{}).get("name",str(k)),"count":v} for k,v in chests.items() if v>0],
             "nectar":nectar,
-            "nectars":[{"key":k,**v,"count":nectar["nectars_inv"].get(k,0)} for k,v in NECTARS_DATA.items()],
+            "nectars":[{"key":k,**v,"count":nectar["nectars_inv"].get(k,0)} for k,v in NECTARS_DATA.items()],\n            "passiveShop":[{"key":k,"name":v["name"],"cost":get_mutation_cost(sum(1 for m in muts if not m["is_active"]))} for k,v in PASSIVE_MUTATIONS.items() if not any(m["variant_key"]==k for m in muts)],\n            "crystal":__import__("data").CRABS[int(u["crab_type"])]["crystal"],
             "dig":{"start":u.get("dig_start_ts"),"duration":u.get("dig_duration_seconds"),"hours":DIG_DURATION_OPTIONS_HOURS},
             "evolution":{"stage":u.get("evolution_stage",0),"tree":json.loads(u.get("evolution_tree") or "[]"),"nodes":EVOLUTION_NODES},
             "stats":{"total_gold":u.get("total_earned_gold",0),"total_dna":u.get("total_dna_earned",0),"kills":u.get("kills",0),"boss_kills":u.get("boss_kills",0)}
@@ -128,6 +128,27 @@ def register_extra(app, auth, user_json):
             return web.json_response({"ok":True})
         raise web.HTTPBadRequest(text="Unknown nectar action")
 
+
+    async def molt(request):
+        uid,_=auth(request); u=await database.run_async(database.get_user,uid)
+        if not can_molt(int(u["crab_level"])): raise web.HTTPConflict(text="Molt requires level 100")
+        gain=apply_permanent_boost(calculate_dna_reward(int(u["crab_level"])),u)
+        await database.run_async(database.update_user,uid,crab_level=1,gold=0,dna_points=int(u["dna_points"])+gain,molts=int(u["molts"])+1,total_dna_earned=int(u["total_dna_earned"])+gain,cur_meters=1,evolution_stage=0,evolution_tree="[]",crab_type=None,cur_hp=0,in_hunt=0,monster_json=None)
+        return web.json_response({"ok":True,"dna":gain,"state":user_json(await database.run_async(database.get_user,uid))})
+
+    async def events(request):
+        uid,_=auth(request); u=await database.run_async(database.get_user,uid)
+        active=await database.run_async(database.get_active_event)
+        unlocked=mythic_events_unlocked(u)
+        if not active:
+            return web.json_response({"unlocked":unlocked,"event":None,"requirements":{"molts":MYTHIC_EVENT_UNLOCK_MOLTS,"meters":MYTHIC_EVENT_UNLOCK_MAX_METERS,"kills":MYTHIC_EVENT_UNLOCK_KILLS}})
+        board=await database.run_async(database.get_event_leaderboard,active["id"],20)
+        names=[]
+        for row in board:
+            p=await database.run_async(database.get_user,row["user_id"])
+            names.append({"nickname":p["nickname"] if p else "Игрок","damage":row["damage"]})
+        return web.json_response({"unlocked":unlocked,"event":{"id":active["id"],"name":active["name"],"description":active["description"],"ends_at":active["ends_at"],"leaderboard":names}})
+
     async def leaderboard(request):
         uid,_=auth(request)
         rows=await database.run_async(database.get_top_players,20)
@@ -146,6 +167,8 @@ def register_extra(app, auth, user_json):
         return web.json_response({"ok":True,"nickname":name})
 
     app.router.add_get("/api/game-data",data)
+    app.router.add_post("/api/molt",molt)
+    app.router.add_get("/api/events",events)
     app.router.add_post("/api/dig/start",dig_start)
     app.router.add_post("/api/dig/collect",dig_collect)
     app.router.add_post("/api/mutations/action",mutations_action)
