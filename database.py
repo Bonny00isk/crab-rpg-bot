@@ -60,6 +60,11 @@ def init_db():
         """CREATE TABLE IF NOT EXISTS promo_redemptions (
             user_id BIGINT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
             code TEXT NOT NULL, redeemed_at BIGINT, PRIMARY KEY(user_id,code))""",
+        """CREATE TABLE IF NOT EXISTS promo_codes (
+            code TEXT PRIMARY KEY, rewards TEXT NOT NULL DEFAULT '{}',
+            max_uses INTEGER DEFAULT 0, used_count INTEGER DEFAULT 0,
+            expires_at BIGINT DEFAULT 0, active INTEGER DEFAULT 1,
+            created_at BIGINT NOT NULL)""",
         "CREATE INDEX IF NOT EXISTS idx_users_molts_level ON users(molts DESC, crab_level DESC)",
         "CREATE INDEX IF NOT EXISTS idx_events_active_id ON events(active, id DESC)",
         "CREATE INDEX IF NOT EXISTS idx_event_damage_event_damage ON event_damage(event_id, damage DESC)",
@@ -428,3 +433,93 @@ def try_spend_resource(user_id, resource_key, count):
             (count, user_id, resource_key, count),
         )
         return cursor.rowcount > 0
+
+# ---------------- ADMIN PANEL: GRANTS AND MANAGED PROMOS ----------------
+def admin_grant_currency(user_id, field, amount):
+    allowed = {"gold", "dna_points", "nautilus_shells"}
+    if field not in allowed or int(amount) == 0:
+        raise ValueError("Invalid currency or amount")
+    with closing(get_conn()) as conn, conn:
+        cur = conn.execute(f"UPDATE users SET {field} = GREATEST(0, {field} + %s) WHERE user_id=%s", (int(amount), user_id))
+        return cur.rowcount > 0
+
+def admin_grant_item(user_id, item_type, item_key, amount=1):
+    amount = int(amount)
+    if amount < 1 or amount > 100000:
+        raise ValueError("Invalid item amount")
+    if item_type == "chest":
+        add_chest(user_id, str(item_key), amount)
+    elif item_type == "resource":
+        add_resource(user_id, str(item_key), amount)
+    elif item_type == "stone":
+        color, level = str(item_key).split(":", 1)
+        add_stone(user_id, color, int(level), amount)
+    elif item_type == "mutation":
+        for _ in range(amount):
+            add_new_mutation_v3(user_id, str(item_key), 0)
+    elif item_type == "nectar":
+        def _grant():
+            with closing(get_conn()) as conn, conn:
+                row = conn.execute("SELECT nectars_inv FROM users WHERE user_id=%s FOR UPDATE", (user_id,)).fetchone()
+                if not row: return False
+                inv = json.loads(row["nectars_inv"] or "{}")
+                inv[str(item_key)] = int(inv.get(str(item_key), 0)) + amount
+                conn.execute("UPDATE users SET nectars_inv=%s WHERE user_id=%s", (json.dumps(inv), user_id))
+                return True
+        return _grant()
+    else:
+        raise ValueError("Unsupported item type")
+    return True
+
+def admin_create_promo(code, rewards, max_uses=0, expires_at=0):
+    code = str(code).strip().lower()
+    if not code or len(code) > 32 or not code.replace("_","").replace("-","").isalnum():
+        raise ValueError("Promo code must be 1-32 letters, digits, _ or -")
+    with closing(get_conn()) as conn, conn:
+        conn.execute("INSERT INTO promo_codes(code,rewards,max_uses,expires_at,active,created_at) VALUES(%s,%s,%s,%s,1,%s)",
+                     (code, json.dumps(rewards, ensure_ascii=False), int(max_uses), int(expires_at), int(time.time())))
+    return code
+
+def admin_list_promos():
+    with closing(get_conn()) as conn:
+        rows = conn.execute("SELECT code,rewards,max_uses,used_count,expires_at,active,created_at FROM promo_codes ORDER BY created_at DESC LIMIT 100").fetchall()
+        result=[]
+        for row in rows:
+            item=dict(row); item["rewards"]=json.loads(item["rewards"] or "{}"); result.append(item)
+        return result
+
+def admin_disable_promo(code):
+    with closing(get_conn()) as conn, conn:
+        cur=conn.execute("UPDATE promo_codes SET active=0 WHERE code=%s AND active=1",(str(code).lower(),))
+        return cur.rowcount>0
+
+def redeem_admin_promo(user_id, code):
+    code=str(code).strip().lower()
+    with closing(get_conn()) as conn, conn.transaction():
+        promo=conn.execute("SELECT * FROM promo_codes WHERE code=%s FOR UPDATE",(code,)).fetchone()
+        if not promo or not promo["active"]: return (False,"Promo code is inactive or unknown")
+        now=int(time.time())
+        if promo["expires_at"] and now>int(promo["expires_at"]): return (False,"Promo code has expired")
+        if promo["max_uses"] and int(promo["used_count"])>=int(promo["max_uses"]): return (False,"Promo code use limit reached")
+        inserted=conn.execute("INSERT INTO promo_redemptions(user_id,code,redeemed_at) VALUES(%s,%s,%s) ON CONFLICT(user_id,code) DO NOTHING RETURNING user_id",(user_id,code,now)).fetchone()
+        if not inserted: return (False,"Promo already redeemed")
+        rewards=json.loads(promo["rewards"] or "{}")
+        gold=int(rewards.get("gold",0)); dna=int(rewards.get("dna",0)); shells=int(rewards.get("shells",0))
+        conn.execute("UPDATE users SET gold=gold+%s,dna_points=dna_points+%s,nautilus_shells=nautilus_shells+%s WHERE user_id=%s",(gold,dna,shells,user_id))
+        kind=rewards.get("item_type"); key=str(rewards.get("item_key","")); count=int(rewards.get("item_count",0))
+        if kind and count>0:
+            if kind=="chest":
+                conn.execute("INSERT INTO chests(user_id,chest_type,count) VALUES(%s,%s,%s) ON CONFLICT(user_id,chest_type) DO UPDATE SET count=chests.count+EXCLUDED.count",(user_id,key,count))
+            elif kind=="resource":
+                conn.execute("INSERT INTO resources(user_id,key,count) VALUES(%s,%s,%s) ON CONFLICT(user_id,key) DO UPDATE SET count=resources.count+EXCLUDED.count",(user_id,key,count))
+            elif kind=="stone":
+                color,level=key.split(":",1)
+                conn.execute("INSERT INTO stones(user_id,color,level,count) VALUES(%s,%s,%s,%s) ON CONFLICT(user_id,color,level) DO UPDATE SET count=stones.count+EXCLUDED.count",(user_id,color,int(level),count))
+            elif kind=="mutation":
+                conn.execute("INSERT INTO mutations_v3(user_id,variant_key,is_active,level,equipped) VALUES(%s,%s,0,1,0) ON CONFLICT(user_id,variant_key) DO NOTHING",(user_id,key))
+            elif kind=="nectar":
+                row=conn.execute("SELECT nectars_inv FROM users WHERE user_id=%s FOR UPDATE",(user_id,)).fetchone()
+                inv=json.loads(row["nectars_inv"] or "{}"); inv[key]=int(inv.get(key,0))+count
+                conn.execute("UPDATE users SET nectars_inv=%s WHERE user_id=%s",(json.dumps(inv),user_id))
+        conn.execute("UPDATE promo_codes SET used_count=used_count+1 WHERE code=%s",(code,))
+        return (True,rewards)
