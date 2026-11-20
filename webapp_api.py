@@ -10,7 +10,7 @@ from urllib.parse import parse_qsl
 from aiohttp import web
 
 import database
-from config import BOT_TOKEN
+from config import BOT_TOKEN, ADMIN_IDS
 from data import CRABS, UNIQUE_ABILITIES, SHIELD_ABILITY, ELITE_ENCOUNTER_MULT
 from game_logic import (
     get_effective_stats, level_up_cost, get_depth_zone_name, get_molt_rank,
@@ -127,7 +127,7 @@ async def api_choose_crab(request):
     if user and user.get("crab_type"):
         raise web.HTTPConflict(text="Crab already selected")
     await database.run_async(database.update_user, uid, crab_type=crab_type, cur_hp=CRABS[crab_type]["max_hp"])
-    return web.json_response(_user_json(await database.run_async(database.get_user, uid)))
+    payload = _user_json(await database.run_async(database.get_user, uid))\n    payload["is_admin"] = uid in ADMIN_IDS\n    return web.json_response(payload)
 
 
 async def api_level_up(request):
