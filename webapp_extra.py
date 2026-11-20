@@ -167,12 +167,14 @@ def register_extra(app, auth, user_json):
         owned_keys=[m["variant_key"] for m in owned]
         loot=roll_chest_loot(chest_key,owned_keys)
         if not await database.run_async(database.try_spend_chest,uid,key,1): raise web.HTTPConflict(text="Chest already opened")
-        if isinstance(loot,dict):
-            variant=loot.get("variant_key") or loot.get("key")
-        else: variant=loot
-        if variant and variant not in owned_keys:
-            await database.run_async(database.add_new_mutation_v3,uid,variant,1)
-        return web.json_response({"ok":True,"loot":loot})
+        if loot.get("shells",0):
+            await database.run_async(database.update_user,uid,nautilus_shells=int((await database.run_async(database.get_user,uid)).get("nautilus_shells",0))+int(loot["shells"]))
+        for color,level in loot.get("stones",[]):
+            await database.run_async(database.add_stone,uid,color,level,1)
+        mutation=loot.get("mutation")
+        if mutation and mutation.get("key") and mutation["key"] not in owned_keys:
+            await database.run_async(database.add_new_mutation_v3,uid,mutation["key"],1)
+        return web.json_response({"ok":True,"loot":{"shells":loot.get("shells",0),"stones":[{"color":color,"level":level} for color,level in loot.get("stones",[])],"mutation":mutation}})
 
     async def store_info(request):
         uid,_=auth(request); u=await database.run_async(database.get_user,uid)
