@@ -269,8 +269,14 @@ async def api_hunt(request):
     if action != "attack":
         raise web.HTTPBadRequest(text="Unknown battle action")
 
+    nectar_state = await database.get_nectars_data(uid)
+    strength_charges = int(nectar_state.get("strength_charges",0))
+    if strength_charges > 0:
+        stats = dict(stats)
+        stats["damage"] *= 1.2
+        await database.update_nectars_data(uid,strength_charges=strength_charges-1)
     sprint = int(monster.get("sprint_turns",0)) > 0
-    damage, critical, missed = player_attack(stats, -100 if sprint else monster.get("evasion", 0), force_crit=bool(monster.get("unique_blood_rage")))
+    damage, critical, missed = player_attack(stats, -100 if sprint else monster.get("evasion", 0), force_crit=bool(monster.get("unique_blood_rage") or monster.get("nectar_rage")))
     damage = int(damage * float(monster.get("unique_damage_mult",1.0)))
     monster["unique_damage_mult"] = 1.0
     monster["hp"] = max(0, int(monster["hp"]) - damage)
@@ -299,6 +305,7 @@ async def api_hunt(request):
             battle_log += f" · Твои HP: {round(hp)}/{round(stats['max_hp'])}"
     else:
         reward = gold_reward(monster, stats, user)
+        if monster.pop("nectar_sparkling",False): reward = int(reward*2.5)
         meters = int(monster.get("meters", int(user.get("cur_meters") or 0) + 1))
         new_gold = int(user.get("gold") or 0) + reward
         new_total = int(user.get("total_earned_gold") or 0) + reward
