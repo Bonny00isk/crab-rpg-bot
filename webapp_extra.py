@@ -218,6 +218,19 @@ def register_extra(app, auth, user_json, bot=None):
         rows=await database.run_async(database.get_top_players,20)
         return web.json_response({"players":[{"rank":i+1,"nickname":r["nickname"],"level":r["crab_level"],"molts":r["molts"],"meters":r["max_meters"],"zone":get_depth_zone_name(r["max_meters"])} for i,r in enumerate(rows)]})
 
+
+    async def player_search(request):
+        uid,_=auth(request); body=await request.json(); name=str(body.get("nickname","")).strip()
+        if not name or len(name)>32: raise web.HTTPBadRequest(text="Enter a nickname")
+        target=await database.run_async(database.find_user_by_nickname,name)
+        if not target: raise web.HTTPNotFound(text="Player not found")
+        stones=await database.run_async(database.get_stones,target["user_id"])
+        muts=await database.run_async(database.get_user_mutations_v3,target["user_id"])
+        from game_logic import get_effective_stats
+        stats=get_effective_stats(target,stones,muts) if target.get("crab_type") else {}
+        from data import CRABS
+        return web.json_response({"nickname":target.get("nickname"),"crab":CRABS.get(target.get("crab_type"),{}).get("name","No crab"),"level":target.get("crab_level",1),"molts":target.get("molts",0),"rank":get_molt_rank(target.get("molts",0)),"zone":get_depth_zone_name(target.get("max_meters",0)),"meters":target.get("max_meters",0),"kills":target.get("kills",0),"boss_kills":target.get("boss_kills",0),"damage":round(stats.get("damage",0),1),"hp":round(stats.get("max_hp",0)),"equipped":[ACTIVE_MUTATIONS.get(m["variant_key"],{}).get("name",m["variant_key"]) for m in muts if m.get("is_active") and m.get("equipped")]})
+
     async def nickname(request):
         uid,_=auth(request); body=await request.json(); name=str(body.get("nickname","")).strip()
         import re
@@ -245,3 +258,4 @@ def register_extra(app, auth, user_json, bot=None):
     app.router.add_post("/api/nectar/action",nectar_action)
     app.router.add_get("/api/leaderboard",leaderboard)
     app.router.add_post("/api/nickname",nickname)
+    app.router.add_post("/api/player/search",player_search)
