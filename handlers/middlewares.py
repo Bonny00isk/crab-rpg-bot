@@ -64,12 +64,12 @@ class SyncBufferMiddleware(BaseMiddleware):
         
         if user and state:
             current_state = await state.get_state()
-            redis_client = state.storage.redis
+            redis_client = getattr(state.storage, "redis", None)
             
             # 2. ПРОВЕРКА ВЫХОДА ИЗ БОЯ:
             # Сценарий А: Игрок вышел из состояния охоты (Nav:hunt) в любое другое меню
             if current_state != "Nav:hunt":
-                # Сбрасываем данные из кэша (Redis) в основную базу (SQLite)
+                # При использовании Redis сбрасываем накопленный буфер в PostgreSQL.
                 await database.flush_user_buffer(redis_client, user.id)
             
             # Сценарий Б: Игрок формально в бою, но нажал инлайн-кнопку ДРУГОГО меню
