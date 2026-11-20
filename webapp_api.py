@@ -29,7 +29,8 @@ def verify_init_data(init_data: str):
         received_hash = fields.pop("hash", "")
         if not received_hash:
             return None
-        data_check_string = "\n".join(f"{k}={v}" for k, v in sorted(fields.items()))
+        data_check_string = "
+".join(f"{k}={v}" for k, v in sorted(fields.items()))
         secret_key = hmac.new(b"WebAppData", BOT_TOKEN.encode(), hashlib.sha256).digest()
         calculated = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
         if not hmac.compare_digest(calculated, received_hash):
@@ -114,7 +115,9 @@ async def api_state(request):
     uid, tg_user = _auth(request)
     await database.run_async(database.create_user, uid, tg_user.get("username") or tg_user.get("first_name") or f"Краб{uid % 100000}")
     user = await database.run_async(database.get_user, uid)
-    return web.json_response(_user_json(user))
+    payload = _user_json(user)
+    payload["is_admin"] = uid in ADMIN_IDS
+    return web.json_response(payload)
 
 
 async def api_choose_crab(request):
