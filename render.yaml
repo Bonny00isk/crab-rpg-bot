@@ -1,19 +1,18 @@
 services:
-  - type: worker
+  - type: web
     name: crab-rpg-bot
     runtime: python
     region: frankfurt
-    plan: starter
+    plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: python bot.py
-    disk:
-      name: crab-game-data
-      mountPath: /data
-      sizeGB: 1
+    healthCheckPath: /health
     envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.11
       - key: BOT_TOKEN
+        sync: false
+      - key: DATABASE_URL
         sync: false
       - key: ADMIN_IDS
         value: "7694677506"
-      - key: DB_PATH
-        value: /data/crab_game.db
