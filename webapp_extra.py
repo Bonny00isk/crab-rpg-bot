@@ -5,11 +5,11 @@ from aiohttp import web
 import database
 from data import (STONE_COLORS, RESOURCES, PASSIVE_MUTATIONS, ACTIVE_MUTATIONS,
                   NECTARS_DATA, EVOLUTION_NODES, DIG_DURATION_OPTIONS_HOURS,
-                  EVENT_CHESTS, MYTHIC_EVENTS, MYTHIC_EVENT_UNLOCK_MOLTS,
+                  EVENT_CHESTS, MYTHIC_EVENTS, PROMO_CODES, SHOP_ITEMS, MYTHIC_EVENT_UNLOCK_MOLTS,
                   MYTHIC_EVENT_UNLOCK_MAX_METERS, MYTHIC_EVENT_UNLOCK_KILLS)
 from game_logic import (get_mutation_cost, cost_upgrade_mutation, can_molt,
                         calculate_dna_reward, apply_permanent_boost,
-                        roll_dig_loot, roll_dig_resources, mythic_events_unlocked,
+                        roll_dig_loot, roll_dig_resources, roll_chest_loot, mythic_events_unlocked,
                         get_depth_zone_name, get_molt_rank, format_number)
 
 def register_extra(app, auth, user_json):
@@ -131,6 +131,53 @@ def register_extra(app, auth, user_json):
         raise web.HTTPBadRequest(text="Unknown nectar action")
 
 
+
+    async def shell_shop(request):
+        uid,_=auth(request); body=await request.json(); key=body.get("key")
+        u=await database.run_async(database.get_user,uid)
+        if key=="speed_dig":
+            cost=3
+            if not u.get("dig_start_ts"): raise web.HTTPConflict(text="No active digging")
+            if not await database.run_async(database.try_spend,uid,"nautilus_shells",cost): raise web.HTTPConflict(text="Need 3 shells")
+            await database.run_async(database.update_user,uid,dig_start_ts=int(time.time())-(u.get("dig_duration_seconds") or 3600))
+            return web.json_response({"ok":True,"message":"Digging completed"})
+        if key=="resource_pack":
+            cost=5
+            if not await database.run_async(database.try_spend,uid,"nautilus_shells",cost): raise web.HTTPConflict(text="Need 5 shells")
+            for rk in RESOURCES: await database.run_async(database.add_resource,uid,rk,2)
+            return web.json_response({"ok":True,"message":"Resources +2 each"})
+        raise web.HTTPBadRequest(text="Unknown shell item")
+
+    async def promo(request):
+        uid,_=auth(request); body=await request.json(); code=str(body.get("code","")).strip().lower()
+        item=PROMO_CODES.get(code)
+        if not item: raise web.HTTPBadRequest(text="Invalid promo code")
+        ok=await database.run_async(database.try_redeem_promo,uid,code,gold=item.get("gold",0),dna=item.get("dna",0),shells=item.get("shells",0),boost=item.get("boost",False))
+        if not ok: raise web.HTTPConflict(text="Promo already redeemed")
+        return web.json_response({"ok":True,"reward":item})
+
+    async def open_chest(request):
+        uid,_=auth(request); body=await request.json(); key=str(body.get("key",""))
+        chests=await database.run_async(database.get_chests,uid)
+        if int(chests.get(key,0))<=0: raise web.HTTPConflict(text="No chest of this type")
+        chest_key=int(key) if key.isdigit() else key
+        chest=EVENT_CHESTS.get(chest_key)
+        if not chest: raise web.HTTPBadRequest(text="Unknown chest")
+        owned=await database.run_async(database.get_user_mutations_v3,uid)
+        owned_keys=[m["variant_key"] for m in owned]
+        loot=roll_chest_loot(chest_key,owned_keys)
+        if not await database.run_async(database.try_spend_chest,uid,key,1): raise web.HTTPConflict(text="Chest already opened")
+        if isinstance(loot,dict):
+            variant=loot.get("variant_key") or loot.get("key")
+        else: variant=loot
+        if variant and variant not in owned_keys:
+            await database.run_async(database.add_new_mutation_v3,uid,variant,1)
+        return web.json_response({"ok":True,"loot":loot})
+
+    async def store_info(request):
+        uid,_=auth(request); u=await database.run_async(database.get_user,uid)
+        return web.json_response({"shells":u.get("nautilus_shells",0),"stars_items":[{"key":k,**v} for k,v in SHOP_ITEMS.items()],"shell_items":[{"key":"speed_dig","title":"⏩ Ускорить копание","shells":3},{"key":"resource_pack","title":"🎁 Набор ресурсов","shells":5}]})
+
     async def molt(request):
         uid,_=auth(request); u=await database.run_async(database.get_user,uid)
         if not can_molt(int(u["crab_level"])): raise web.HTTPConflict(text="Molt requires level 100")
@@ -170,6 +217,10 @@ def register_extra(app, auth, user_json):
 
     app.router.add_get("/api/game-data",data)
     app.router.add_post("/api/molt",molt)
+    app.router.add_get("/api/shop",store_info)
+    app.router.add_post("/api/shop/shell",shell_shop)
+    app.router.add_post("/api/promo",promo)
+    app.router.add_post("/api/chest/open",open_chest)
     app.router.add_get("/api/events",events)
     app.router.add_post("/api/dig/start",dig_start)
     app.router.add_post("/api/dig/collect",dig_collect)
