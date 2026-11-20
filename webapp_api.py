@@ -213,3 +213,5 @@ def setup_webapp(app):
     app.router.add_post("/api/choose-crab", api_choose_crab)
     app.router.add_post("/api/level-up", api_level_up)
     app.router.add_post("/api/hunt", api_hunt)
+    from webapp_extra import register_extra
+    register_extra(app, _auth, _user_json)
