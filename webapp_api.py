@@ -276,14 +276,21 @@ async def api_hunt(request):
         stats["damage"] *= 1.2
         await database.update_nectars_data(uid,strength_charges=strength_charges-1)
     sprint = int(monster.get("sprint_turns",0)) > 0
-    damage, critical, missed = player_attack(stats, -100 if sprint else monster.get("evasion", 0), force_crit=bool(monster.get("unique_blood_rage") or monster.get("nectar_rage")))
+    fatigue = int(monster.get("fatigue_turns",0))
+    battle_stats = dict(stats)
+    if fatigue: battle_stats["evasion"] = max(0,float(battle_stats.get("evasion",0))-15)
+    enemy_evasion = float(monster.get("evasion",0)) + (15 if fatigue else 0)
+    damage, critical, missed = player_attack(stats, -100 if sprint else enemy_evasion, force_crit=bool(monster.get("unique_blood_rage") or monster.get("nectar_rage")))
     damage = int(damage * float(monster.get("unique_damage_mult",1.0)))
     monster["unique_damage_mult"] = 1.0
     monster["hp"] = max(0, int(monster["hp"]) - damage)
     battle_log = "Промах!" if missed else (f"Критический удар: −{damage} HP" if critical else f"Ты наносишь −{damage} HP")
     updates = {}
     if monster["hp"] > 0:
-        incoming, dodged = monster_attack(monster, stats)
+        if sprint:
+            incoming, dodged = 0, True
+        else:
+            incoming, dodged = monster_attack(monster, battle_stats)
         if monster.get("shield_active"):
             incoming = int(incoming * (1 - SHIELD_ABILITY.get("block_percent",80)/100))
             monster["shield_active"] = False
@@ -295,6 +302,10 @@ async def api_hunt(request):
             hp = max(0,hp - int(stats["max_hp"]*(self_pct+once_pct)))
         if sprint:
             monster["sprint_turns"] = max(0,int(monster.get("sprint_turns",0))-1)
+            if monster["sprint_turns"] == 0:
+                monster["fatigue_turns"] = 4
+        elif fatigue:
+            monster["fatigue_turns"] = max(0,fatigue-1)
         battle_log += " · " + ("Ты уклонился от ответа!" if dodged else f"Враг атакует: −{incoming} HP")
         if hp <= 0:
             back = max(0, int(user.get("cur_meters") or 0) - 1)
