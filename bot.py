@@ -54,7 +54,7 @@ async def create_fsm_storage():
 async def start_health_server(bot, dp, webhook_url=None):
     app = web.Application()
     from webapp_api import setup_webapp
-    setup_webapp(app)
+    setup_webapp(app, bot)
 
     async def health(_request):
         return web.json_response({"ok": True, "service": "crab-rpg-bot", "mode": "webhook" if webhook_url else "polling"})
