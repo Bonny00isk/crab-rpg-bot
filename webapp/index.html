@@ -59,7 +59,7 @@ window.battleAbility=a=>action(async()=>{const r=await api('/api/hunt','POST',{a
 window.battleAbility=a=>action(async()=>{const r=await api('/api/hunt','POST',{action:'ability',ability:a});state=r.state;lastLog=r.log||'Способность активирована';toast(lastLog)});
 window.hunt=()=>action(async()=>{const r=await api('/api/hunt','POST',{});state=r.state;lastLog=r.log|| (r.event==='started'?'Враг появился. Атакуй!':'');toast(r.event==='started'?'Противник обнаружен!':(r.log||'Готово'))});
 
-let currentView='home', extraData=null;
+let currentView='home', extraData=null, playerData=null;
 const renderHomeBase=render;
 function nav(){
  return '<nav class="appnav">'+[['home','🏠','Главная'],['inventory','🎒','Нора'],['dig','⛏️','Копать'],['mutations','🧬','Мутации'],['craft','🍯','Нектар'],['more','☰','Ещё']].map(([k,e,t])=>'<button class="'+(currentView===k?'active':'')+'" onclick="goView(\''+k+'\')"><span>'+e+'</span>'+t+'</button>').join('')+'</nav>';
@@ -87,7 +87,7 @@ function renderSection(){
   body='<div class="sub">Надето: '+esc((x.nectars.find(n=>n.key===nectar.active_nectar)||{}).name||'ничего')+'</div>'+(nectar.active_nectar?'<button class="btn secondary" onclick="nectarAction(\'equip\',\'\')">Снять нектар</button>':'')+(x.nectars||[]).map(n=>'<div class="rowitem"><div><b>'+esc(n.name)+'</b><div class="sub">'+esc(n.desc)+'</div><small>В запасе: '+num(n.count)+'</small></div><span><button onclick="nectarAction(\'craft\',\''+n.key+'\')">Крафт</button>'+(n.count?'<button onclick="nectarAction(\'equip\',\''+n.key+'\')">Надеть</button>':'')+'</span></div>').join('');
  }else if(currentView==='more'){
   title='☰ Дополнительно';
-  body='<button class="choice" onclick="goView(\'shop\')"><span class="symbol">🛍️</span><span><b>Магазин</b><small>Покупки за раковины и Stars</small></span></button><button class="choice" onclick="redeemPromo()"><span class="symbol">🎟️</span><span><b>Промокод</b><small>Активировать код</small></span></button><button class="choice" onclick="goView(\'evolution\')"><span class="symbol">🌟</span><span><b>Эволюция</b><small>Выбор постоянных бонусов до линьки</small></span></button><button class="choice" onclick="goView(\'leaderboard\')"><span class="symbol">🏆</span><span><b>Топ игроков</b><small>Рейтинг глубины и линек</small></span></button><button class="choice" onclick="goView(\'stats\')"><span class="symbol">📊</span><span><b>Статистика</b><small>Твои игровые достижения</small></span></button><button class="choice" onclick="changeNickname()"><span class="symbol">✏️</span><span><b>Изменить ник</b><small>Один раз в 7 дней</small></span></button><button class="choice" onclick="goView(\'events\')"><span class="symbol">🐉</span><span><b>Мифические события</b><small>Боссы и общий рейтинг урона</small></span></button>';
+  body='<button class="choice" onclick="searchPlayer()"><span class="symbol">🔍</span><span><b>Найти игрока</b><small>Посмотреть открытый профиль</small></span></button><button class="choice" onclick="goView(\'shop\')"><span class="symbol">🛍️</span><span><b>Магазин</b><small>Покупки за раковины и Stars</small></span></button><button class="choice" onclick="redeemPromo()"><span class="symbol">🎟️</span><span><b>Промокод</b><small>Активировать код</small></span></button><button class="choice" onclick="goView(\'evolution\')"><span class="symbol">🌟</span><span><b>Эволюция</b><small>Выбор постоянных бонусов до линьки</small></span></button><button class="choice" onclick="goView(\'leaderboard\')"><span class="symbol">🏆</span><span><b>Топ игроков</b><small>Рейтинг глубины и линек</small></span></button><button class="choice" onclick="goView(\'stats\')"><span class="symbol">📊</span><span><b>Статистика</b><small>Твои игровые достижения</small></span></button><button class="choice" onclick="changeNickname()"><span class="symbol">✏️</span><span><b>Изменить ник</b><small>Один раз в 7 дней</small></span></button><button class="choice" onclick="goView(\'events\')"><span class="symbol">🐉</span><span><b>Мифические события</b><small>Боссы и общий рейтинг урона</small></span></button>';
  }else if(currentView==='evolution'){
   title='🌟 Древо эволюции';
   const evo=x.evolution||{},tree=evo.tree||[],nodes=evo.nodes||{};
@@ -95,6 +95,10 @@ function renderSection(){
  }else if(currentView==='leaderboard'){
   title='🏆 Топ игроков';
   body='<div class="loading">Загрузка рейтинга…</div>'; loadLeaderboard();
+
+ }else if(currentView==='player'){
+  title='🔍 Профиль игрока';
+  body=playerData?'<div class="name">'+esc(playerData.nickname)+'</div><div class="sub">'+esc(playerData.rank)+' · '+esc(playerData.crab)+'</div><div class="stats"><div class="stat"><span>Уровень</span><b>'+num(playerData.level)+'</b></div><div class="stat"><span>Линьки</span><b>'+num(playerData.molts)+'</b></div><div class="stat"><span>Глубина</span><b>'+num(playerData.meters)+' м</b></div></div><div class="rowitem"><b>Урон</b><span>'+num(playerData.damage)+'</span></div><div class="rowitem"><b>Макс. HP</b><span>'+num(playerData.hp)+'</span></div><div class="rowitem"><b>Убийства</b><span>'+num(playerData.kills)+'</span></div><div class="rowitem"><b>Боссы</b><span>'+num(playerData.boss_kills)+'</span></div><h3>Экипированные мутации</h3>'+((playerData.equipped||[]).length?playerData.equipped.map(n=>'<div class="rowitem"><b>'+esc(n)+'</b></div>').join(''):'<p class="sub">Нет активных мутаций</p>'):'<p class="sub">Игрок не найден</p>';
  }else if(currentView==='stats'){
   title='📊 Статистика';
   const s=x.stats||{};
@@ -125,6 +129,7 @@ window.digCollect=()=>action(async()=>{const r=await api('/api/dig/collect','POS
 window.mutAction=(a,k)=>action(async()=>{const r=await api('/api/mutations/action','POST',{action:a,key:k});await loadExtra();toast(a==='buy'?'Мутация приобретена!':a==='upgrade'?'Мутация улучшена!':'Экипировка обновлена')});
 window.nectarAction=(a,k)=>action(async()=>{await api('/api/nectar/action','POST',{action:a,key:k});await loadExtra();toast(a==='craft'?'Нектар создан!':'Нектар экипирован')});
 window.evolutionPick=k=>action(async()=>{await api('/api/evolution/pick','POST',{key:k});await loadExtra();toast('Эволюция выбрана!')});
+window.searchPlayer=async()=>{const name=prompt('Ник игрока:');if(!name)return;try{playerData=await api('/api/player/search','POST',{nickname:name});currentView='player';await loadExtra();render()}catch(e){toast(e.message)}};
 window.changeNickname=()=>{const n=prompt('Новый ник (3–16 символов):',state.nickname);if(n)action(async()=>{await api('/api/nickname','POST',{nickname:n});await refresh();toast('Ник изменён')})};
 async function loadLeaderboard(){try{const r=await api('/api/leaderboard');if(currentView==='leaderboard'){const p=app.querySelector('.panel');p.innerHTML='<div class="section-title">🏆 Топ игроков</div>'+r.players.map(x=>'<div class="rowitem"><b>#'+x.rank+' '+esc(x.nickname)+'<div class="sub">'+x.level+' ур. · '+x.molts+' линек · '+esc(x.zone)+'</div></b><span>'+num(x.meters)+' м</span></div>').join('')}}catch(e){toast(e.message)}}
 
