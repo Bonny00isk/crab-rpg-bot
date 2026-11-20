@@ -166,11 +166,12 @@ async def perform_search(message: Message, state: FSMContext):
     nectars_db = await database.get_nectars_data(user_id)
     nectars_db["combat_effects"] = {} 
     
-    redis_client = state.storage.redis
-    buffered_meters = await redis_client.hget(f"user_buffer:{user_id}", "cur_meters")
-    buffered_hp = await redis_client.hget(f"user_buffer:{user_id}", "cur_hp")
-    if buffered_meters: user["cur_meters"] = int(buffered_meters)
-    if buffered_hp is not None: user["cur_hp"] = float(buffered_hp)
+    redis_client = getattr(state.storage, "redis", None)
+    if redis_client is not None:
+        buffered_meters = await redis_client.hget(f"user_buffer:{user_id}", "cur_meters")
+        buffered_hp = await redis_client.hget(f"user_buffer:{user_id}", "cur_hp")
+        if buffered_meters: user["cur_meters"] = int(buffered_meters)
+        if buffered_hp is not None: user["cur_hp"] = float(buffered_hp)
 
     stones = await database.run_async(database.get_stones, user_id)
     
@@ -329,7 +330,7 @@ async def _finish_turn(call, user_id, fsm_data, state: FSMContext, is_camp, targ
     nectars = fsm_data["nectars"]
     msg_id = fsm_data.get("battle_message_id", message.message_id)
     last_line, now = "\n".join(log), int(time.time())
-    redis_client = state.storage.redis
+    redis_client = getattr(state.storage, "redis", None)
 
     if cur_hp <= 0:
         await database.flush_user_buffer(redis_client, user_id)
@@ -605,9 +606,9 @@ async def retreat(message: Message, state: FSMContext):
     if monster and monster.get("is_boss") and monster.get("accumulated_damage", 0) > 0:
         await database.run_async(database.add_event_damage, monster["event_id"], user_id, monster["accumulated_damage"])
     if cur_hp is not None:
-        await database.add_to_buffer(state.storage.redis, user_id, cur_hp=cur_hp, last_hp_regen_ts=int(time.time()))
+        await database.add_to_buffer(getattr(state.storage, "redis", None), user_id, cur_hp=cur_hp, last_hp_regen_ts=int(time.time()))
     
-    await database.flush_user_buffer(state.storage.redis, user_id)
+    await database.flush_user_buffer(getattr(state.storage, "redis", None), user_id)
     await state.set_data({})
     if msg_id:
         try: await message.bot.edit_message_text(chat_id=message.chat.id, message_id=msg_id, text="↩️ Ты ушёл боком.")
