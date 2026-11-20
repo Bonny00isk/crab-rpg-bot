@@ -4,6 +4,7 @@ import json, time
 from aiohttp import web
 from aiogram.types import LabeledPrice
 import database
+from config import ADMIN_IDS
 from data import (STONE_COLORS, RESOURCES, PASSIVE_MUTATIONS, ACTIVE_MUTATIONS,
                   NECTARS_DATA, EVOLUTION_NODES, DIG_DURATION_OPTIONS_HOURS,
                   EVENT_CHESTS, MYTHIC_EVENTS, PROMO_CODES, SHOP_ITEMS, MYTHIC_EVENT_UNLOCK_MOLTS,
@@ -151,6 +152,12 @@ def register_extra(app, auth, user_json, bot=None):
 
     async def promo(request):
         uid,_=auth(request); body=await request.json(); code=str(body.get("code","")).strip().lower()
+        # Admin-created promos live in PostgreSQL; legacy static codes remain supported.
+        exists=await database.run_async(database.admin_list_promos)
+        if any(p["code"]==code for p in exists):
+            ok,reward=await database.run_async(database.redeem_admin_promo,uid,code)
+            if not ok: raise web.HTTPConflict(text=reward)
+            return web.json_response({"ok":True,"reward":reward})
         item=PROMO_CODES.get(code)
         if not item: raise web.HTTPBadRequest(text="Invalid promo code")
         ok=await database.run_async(database.try_redeem_promo,uid,code,gold=item.get("gold",0),dna=item.get("dna",0),shells=item.get("shells",0),boost=item.get("boost",False))
@@ -249,6 +256,80 @@ def register_extra(app, auth, user_json, bot=None):
         await database.run_async(database.update_user,uid,nickname=name,last_nick_change_ts=now)
         return web.json_response({"ok":True,"nickname":name})
 
+
+    def require_admin(uid):
+        if int(uid) not in ADMIN_IDS:
+            raise web.HTTPForbidden(text="Admin access required")
+
+    async def admin_grant(request):
+        uid,_=auth(request); require_admin(uid)
+        body=await request.json()
+        target=int(body.get("user_id",0)); amount=int(body.get("amount",0))
+        if target<=0: raise web.HTTPBadRequest(text="Invalid player Telegram ID")
+        player=await database.run_async(database.get_user,target)
+        if not player: raise web.HTTPNotFound(text="Player is not registered")
+        kind=str(body.get("kind",""))
+        if kind=="currency":
+            field=str(body.get("currency",""))
+            if field not in ("gold","dna_points","nautilus_shells"): raise web.HTTPBadRequest(text="Invalid currency")
+            if amount==0 or abs(amount)>1000000000: raise web.HTTPBadRequest(text="Amount out of range")
+            await database.run_async(database.admin_grant_currency,target,field,amount)
+            return web.json_response({"ok":True,"player":player.get("nickname"),"amount":amount,"kind":field})
+        if kind=="item":
+            item_type=str(body.get("item_type","")); key=str(body.get("item_key",""))
+            valid=False
+            if item_type=="chest": valid=(str(key) in {str(k) for k in EVENT_CHESTS})
+            elif item_type=="resource": valid=key in RESOURCES
+            elif item_type=="mutation": valid=key in PASSIVE_MUTATIONS or key in ACTIVE_MUTATIONS
+            elif item_type=="nectar": valid=key in NECTARS_DATA
+            elif item_type=="stone":
+                parts=key.split(":")
+                valid=len(parts)==2 and parts[0] in STONE_COLORS and parts[1].isdigit() and 1<=int(parts[1])<=10
+            if not valid: raise web.HTTPBadRequest(text="Unknown item")
+            if amount<1 or amount>1000: raise web.HTTPBadRequest(text="Item amount must be 1-1000")
+            await database.run_async(database.admin_grant_item,target,item_type,key,amount)
+            return web.json_response({"ok":True,"player":player.get("nickname"),"amount":amount,"item_type":item_type,"item_key":key})
+        raise web.HTTPBadRequest(text="Unknown grant kind")
+
+    async def admin_promo_create(request):
+        uid,_=auth(request); require_admin(uid)
+        body=await request.json()
+        code=str(body.get("code","")).strip().lower()
+        rewards={}
+        for field in ("gold","dna","shells"):
+            value=int(body.get(field,0) or 0)
+            if value<0 or value>1000000000: raise web.HTTPBadRequest(text="Reward out of range")
+            if value: rewards[field]=value
+        item_type=str(body.get("item_type","")); item_key=str(body.get("item_key","")); item_count=int(body.get("item_count",0) or 0)
+        if item_type:
+            valid=(item_type=="chest" and item_key in {str(k) for k in EVENT_CHESTS}) or (item_type=="resource" and item_key in RESOURCES) or (item_type=="mutation" and (item_key in PASSIVE_MUTATIONS or item_key in ACTIVE_MUTATIONS)) or (item_type=="nectar" and item_key in NECTARS_DATA)
+            if item_type=="stone":
+                parts=item_key.split(":"); valid=len(parts)==2 and parts[0] in STONE_COLORS and parts[1].isdigit() and 1<=int(parts[1])<=10
+            if not valid or item_count<1 or item_count>1000: raise web.HTTPBadRequest(text="Invalid promo item")
+            rewards.update({"item_type":item_type,"item_key":item_key,"item_count":item_count})
+        if not rewards: raise web.HTTPBadRequest(text="Specify at least one reward")
+        max_uses=int(body.get("max_uses",0) or 0)
+        if max_uses<0 or max_uses>10000000: raise web.HTTPBadRequest(text="Invalid activation limit")
+        expires_hours=int(body.get("expires_hours",0) or 0)
+        if expires_hours<0 or expires_hours>87600: raise web.HTTPBadRequest(text="Invalid expiry")
+        expires_at=int(time.time())+expires_hours*3600 if expires_hours else 0
+        try: code=await database.run_async(database.admin_create_promo,code,rewards,max_uses,expires_at)
+        except Exception as exc:
+            if "unique" in str(exc).lower() or "duplicate" in str(exc).lower(): raise web.HTTPConflict(text="Promo code already exists")
+            raise web.HTTPBadRequest(text=str(exc))
+        return web.json_response({"ok":True,"code":code})
+
+    async def admin_promo_list(request):
+        uid,_=auth(request); require_admin(uid)
+        return web.json_response({"promos":await database.run_async(database.admin_list_promos)})
+
+    async def admin_promo_disable(request):
+        uid,_=auth(request); require_admin(uid)
+        body=await request.json(); code=str(body.get("code","")).strip().lower()
+        ok=await database.run_async(database.admin_disable_promo,code)
+        if not ok: raise web.HTTPNotFound(text="Active promo not found")
+        return web.json_response({"ok":True})
+
     app.router.add_get("/api/game-data",data)
     app.router.add_post("/api/molt",molt)
     app.router.add_get("/api/shop",store_info)
@@ -266,3 +347,7 @@ def register_extra(app, auth, user_json, bot=None):
     app.router.add_post("/api/nickname",nickname)
     app.router.add_post("/api/player/search",player_search)
     app.router.add_get("/api/players/random",random_players)
+    app.router.add_post("/api/admin/grant",admin_grant)
+    app.router.add_post("/api/admin/promos",admin_promo_create)
+    app.router.add_get("/api/admin/promos",admin_promo_list)
+    app.router.add_post("/api/admin/promos/disable",admin_promo_disable)
