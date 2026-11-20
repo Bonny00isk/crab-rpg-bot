@@ -60,6 +60,7 @@ def _user_json(user):
     crab_type = user.get("crab_type")
     payload = {
         "registered": True,
+        "is_admin": int(user.get("user_id") or 0) in ADMIN_IDS,
         "needs_crab": not bool(crab_type),
         "nickname": user.get("nickname") or "Краб",
         "crab_type": crab_type,
