@@ -88,7 +88,7 @@ function renderSection(){
  }else if(currentView==='evolution'){
   title='🌟 Древо эволюции';
   const evo=x.evolution||{},tree=evo.tree||[],nodes=evo.nodes||{};
-  body='<div class="sub">Этап '+num(evo.stage||0)+' · доступно '+Math.max(0,Math.min(10,Math.floor(state.crab_level/50))-Number(evo.stage||0))+' очков</div>'+Object.entries(nodes).filter(([k,n])=>!tree.includes(k)).map(([k,n])=>'<div class="rowitem"><b>'+esc(n.name)+'<div class="sub">'+esc(n.desc)+'</div></b><button onclick="evolutionPick(\''+k+'\')">Выбрать</button></div>').join('');
+  body='<div class="sub">Этап '+num(evo.stage||0)+' · доступно '+Math.max(0,Math.min(10,Math.floor(state.crab_level/50))-Number(evo.stage||0))+' очков</div>'+Object.entries(nodes).filter(([k,n])=>k.startsWith(x.crystal||'')&&!tree.includes(k)).map(([k,n])=>'<div class="rowitem"><b>'+esc(n.name)+'<div class="sub">'+esc(n.desc)+'</div></b><button onclick="evolutionPick(\''+k+'\')">Выбрать</button></div>').join('');
  }else if(currentView==='leaderboard'){
   title='🏆 Топ игроков';
   body='<div class="loading">Загрузка рейтинга…</div>'; loadLeaderboard();
@@ -98,11 +98,15 @@ function renderSection(){
   body='<div class="rowitem"><b>Всего заработано золота</b><span>'+num(s.total_gold)+'</span></div><div class="rowitem"><b>Всего ДНК получено</b><span>'+num(s.total_dna)+'</span></div><div class="rowitem"><b>Убито существ</b><span>'+num(s.kills)+'</span></div><div class="rowitem"><b>Убито боссов</b><span>'+num(s.boss_kills)+'</span></div><div class="rowitem"><b>Линьки</b><span>'+num(state.molts)+'</span></div><div class="rowitem"><b>Рекорд глубины</b><span>'+num(state.max_meters)+' м</span></div>';
  }else if(currentView==='events'){
   title='🐉 Мифические события';
-  body='<div class="notice">Мифические события открываются после '+num(2)+' линек, '+num(300)+' м рекорда или '+num(450)+' убийств. Раздел событий и атаки на босса переносим следующим этапом.</div>';
+  body='<div class="notice">Линька доступна с 100 уровня. Она сбрасывает уровень, золото и эволюцию, но даёт ДНК. Это действие необратимо.</div><button class="btn gold" onclick="molt()" '+(state.crab_level<100?'disabled':'')+'>🦋 Провести линьку</button><div id="eventsbox" class="sub" style="margin-top:16px">Загружаем событие…</div>'; loadEvents();
  }
  app.innerHTML='<div class="top"><div class="brand">CRAB RPG<strong>ABYSS</strong></div><button class="avatar" onclick="goView(\'home\')">🦀</button></div><section class="panel"><div class="section-title">'+title+'</div>'+body+'</section>'+nav();
 }
 render=function(){if(currentView==='home'){renderHomeBase();app.insertAdjacentHTML('beforeend',nav())}else renderSection()};
+
+window.molt=()=>{if(!confirm('Линька сбросит уровень, золото и эволюцию. Продолжить?'))return;action(async()=>{const r=await api('/api/molt','POST',{});state=r.state;await loadExtra();toast('Линька завершена! Получено '+num(r.dna)+' ДНК')})};
+async function loadEvents(){try{const r=await api('/api/events');const el=document.getElementById('eventsbox');if(!el)return;if(!r.unlocked){el.innerHTML='<h3>🐉 Ивенты закрыты</h3><p>Нужно выполнить хотя бы одно условие: '+r.requirements.molts+' линьки, рекорд '+r.requirements.meters+' м или '+r.requirements.kills+' убийств.</p>';return}if(!r.event){el.innerHTML='<h3>🌊 Активных ивентов нет</h3><p>События запускаются автоматически. Загляни позже.</p>';return}el.innerHTML='<h3>'+esc(r.event.name)+'</h3><p>'+esc(r.event.description)+'</p><h3>Урон игроков</h3>'+r.event.leaderboard.map((p,i)=>'<div class="rowitem"><b>#'+(i+1)+' '+esc(p.nickname)+'</b><span>'+num(p.damage)+'</span></div>').join('')}catch(e){toast(e.message)}}
+
 window.goView=async v=>{currentView=v;if(v==='home'){render();return}await loadExtra();render()};
 window.digStart=h=>action(async()=>{await api('/api/dig/start','POST',{hours:h});await loadExtra();toast('Краб отправлен копать!')});
 window.digCollect=()=>action(async()=>{const r=await api('/api/dig/collect','POST',{});await loadExtra();toast('Добыча собрана: '+r.stones.length+' камней, '+r.resources.length+' ресурсов')});
