@@ -1,124 +1,83 @@
 # -*- coding: utf-8 -*-
+"""PostgreSQL persistence layer for Neon."""
 import asyncio
-import os
-import sqlite3
-import time
 import json
-import aiosqlite
+import os
+import time
 from contextlib import closing
 
-from config import DB_PATH
+import psycopg
+from psycopg.rows import dict_row
 
-_wal_enabled = False
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL is required. Configure the Neon connection string in the host environment.")
+
+def get_conn():
+    return psycopg.connect(DATABASE_URL, row_factory=dict_row, connect_timeout=15)
 
 async def run_async(func, *args, **kwargs):
     return await asyncio.to_thread(func, *args, **kwargs)
 
-_db_dir = os.path.dirname(DB_PATH)
-if _db_dir:
-    os.makedirs(_db_dir, exist_ok=True)
-
-def get_conn():
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=15)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-
-    global _wal_enabled
-    if not _wal_enabled:
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA busy_timeout=15000")
-        _wal_enabled = True
-    else:
-        conn.execute("PRAGMA busy_timeout=15000")
-    return conn
-
-def _safe_migrate(conn, sql):
-    try:
-        conn.execute(sql)
-    except sqlite3.OperationalError:
-        pass 
-
 def init_db():
+    """Create the complete PostgreSQL schema. Safe to run on every boot."""
+    statements = [
+        """CREATE TABLE IF NOT EXISTS users (
+            user_id BIGINT PRIMARY KEY, username TEXT, nickname TEXT, crab_type INTEGER,
+            shore INTEGER, crab_level INTEGER DEFAULT 1, gold BIGINT DEFAULT 0,
+            dna_points BIGINT DEFAULT 0, molts INTEGER DEFAULT 0, max_meters INTEGER DEFAULT 0,
+            cur_meters INTEGER DEFAULT 0, cur_hp DOUBLE PRECISION DEFAULT 0, in_hunt INTEGER DEFAULT 0,
+            monster_json TEXT, kills BIGINT DEFAULT 0, boss_kills BIGINT DEFAULT 0,
+            dig_start_ts BIGINT, dig_duration_seconds INTEGER, last_hp_regen_ts BIGINT,
+            last_nick_change_ts BIGINT, registered_at BIGINT, total_earned_gold BIGINT DEFAULT 0,
+            total_dna_earned BIGINT DEFAULT 0, nautilus_shells BIGINT DEFAULT 0,
+            buff_damage_mult DOUBLE PRECISION, buff_expires_ts BIGINT, permanent_boost INTEGER DEFAULT 0,
+            battle_message_id BIGINT, boss_cooldown_ts BIGINT DEFAULT 0,
+            evolution_stage INTEGER DEFAULT 0, evolution_tree TEXT DEFAULT '[]',
+            active_nectar TEXT, nectars_inv TEXT DEFAULT '{}', strength_charges INTEGER DEFAULT 0
+        )""",
+        """CREATE TABLE IF NOT EXISTS stones (
+            user_id BIGINT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+            color TEXT NOT NULL, level INTEGER NOT NULL, count BIGINT DEFAULT 0,
+            PRIMARY KEY(user_id,color,level))""",
+        """CREATE TABLE IF NOT EXISTS mutations_v3 (
+            user_id BIGINT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+            variant_key TEXT NOT NULL, is_active INTEGER, level INTEGER DEFAULT 1,
+            equipped INTEGER DEFAULT 0, PRIMARY KEY(user_id,variant_key))""",
+        """CREATE TABLE IF NOT EXISTS resources (
+            user_id BIGINT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+            key TEXT NOT NULL, count BIGINT DEFAULT 0, PRIMARY KEY(user_id,key))""",
+        """CREATE TABLE IF NOT EXISTS chests (
+            user_id BIGINT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+            chest_type TEXT NOT NULL, count BIGINT DEFAULT 0, PRIMARY KEY(user_id,chest_type))""",
+        """CREATE TABLE IF NOT EXISTS events (
+            id BIGSERIAL PRIMARY KEY, name TEXT, description TEXT,
+            started_at BIGINT, ends_at BIGINT, active INTEGER DEFAULT 1)""",
+        """CREATE TABLE IF NOT EXISTS event_damage (
+            event_id BIGINT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+            user_id BIGINT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+            damage BIGINT DEFAULT 0, PRIMARY KEY(event_id,user_id))""",
+        """CREATE TABLE IF NOT EXISTS promo_redemptions (
+            user_id BIGINT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+            code TEXT NOT NULL, redeemed_at BIGINT, PRIMARY KEY(user_id,code))""",
+        "CREATE INDEX IF NOT EXISTS idx_users_molts_level ON users(molts DESC, crab_level DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_events_active_id ON events(active, id DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_event_damage_event_damage ON event_damage(event_id, damage DESC)",
+    ]
     with closing(get_conn()) as conn, conn:
-        conn.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY, username TEXT, nickname TEXT, crab_type INTEGER,
-            shore INTEGER, crab_level INTEGER DEFAULT 1, gold INTEGER DEFAULT 0,
-            dna_points INTEGER DEFAULT 0, molts INTEGER DEFAULT 0, max_meters INTEGER DEFAULT 0,
-            cur_meters INTEGER DEFAULT 0, cur_hp INTEGER DEFAULT 0, in_hunt INTEGER DEFAULT 0,
-            monster_json TEXT, kills INTEGER DEFAULT 0, boss_kills INTEGER DEFAULT 0,
-            dig_start_ts INTEGER, dig_duration_seconds INTEGER, last_hp_regen_ts INTEGER,
-            last_nick_change_ts INTEGER, registered_at INTEGER, total_earned_gold INTEGER DEFAULT 0,
-            total_dna_earned INTEGER DEFAULT 0, nautilus_shells INTEGER DEFAULT 0,
-            buff_damage_mult REAL, buff_expires_ts INTEGER, permanent_boost INTEGER DEFAULT 0,
-            battle_message_id INTEGER, boss_cooldown_ts INTEGER DEFAULT 0
-        )
-        """)
-        for col, coltype in [
-            ("dig_duration_seconds", "INTEGER"), ("last_hp_regen_ts", "INTEGER"),
-            ("buff_damage_mult", "REAL"), ("buff_expires_ts", "INTEGER"),
-            ("permanent_boost", "INTEGER DEFAULT 0"), ("battle_message_id", "INTEGER"),
-            ("boss_cooldown_ts", "INTEGER DEFAULT 0"),
-        ]:
-            _safe_migrate(conn, f"ALTER TABLE users ADD COLUMN {col} {coltype}")
-
-        # НОВЫЕ КОЛОНКИ ДЛЯ ЭВОЛЮЦИИ
-        _safe_migrate(conn, "ALTER TABLE users ADD COLUMN evolution_stage INTEGER DEFAULT 0")
-        _safe_migrate(conn, "ALTER TABLE users ADD COLUMN evolution_tree TEXT DEFAULT '[]'")
-
-        conn.execute("""
-        CREATE TABLE IF NOT EXISTS stones (
-            user_id INTEGER, color TEXT, level INTEGER, count INTEGER DEFAULT 0,
-            PRIMARY KEY (user_id, color, level)
-        )
-        """)
-        
-        # НОВАЯ ТАБЛИЦА МУТАЦИЙ V3
-        conn.execute("""
-        CREATE TABLE IF NOT EXISTS mutations_v3 (
-            user_id INTEGER, variant_key TEXT, is_active INTEGER, level INTEGER DEFAULT 1,
-            equipped INTEGER DEFAULT 0,
-            PRIMARY KEY (user_id, variant_key)
-        )
-        """)
-
-        conn.execute("""
-        CREATE TABLE IF NOT EXISTS resources (
-            user_id INTEGER, key TEXT, count INTEGER DEFAULT 0,
-            PRIMARY KEY (user_id, key)
-        )
-        """)
-        
-        conn.execute("""
-        CREATE TABLE IF NOT EXISTS chests (
-            user_id INTEGER, chest_type TEXT, count INTEGER DEFAULT 0,
-            PRIMARY KEY (user_id, chest_type)
-        )
-        """)
-
-        conn.execute("""
-        CREATE TABLE IF NOT EXISTS events (
-            id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, description TEXT,
-            started_at INTEGER, ends_at INTEGER, active INTEGER DEFAULT 1
-        )
-        """)
-        conn.execute("""
-        CREATE TABLE IF NOT EXISTS event_damage (
-            event_id INTEGER, user_id INTEGER, damage INTEGER DEFAULT 0,
-            PRIMARY KEY (event_id, user_id)
-        )
-        """)
-        conn.execute("""
-        CREATE TABLE IF NOT EXISTS promo_redemptions (
-            user_id INTEGER, code TEXT, redeemed_at INTEGER,
-            PRIMARY KEY (user_id, code)
-        )
-        """)
+        for statement in statements:
+            conn.execute(statement)
+        # Additive upgrades for databases created by earlier bot versions.
+        conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS evolution_stage INTEGER DEFAULT 0")
+        conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS evolution_tree TEXT DEFAULT '[]'")
+        conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS active_nectar TEXT DEFAULT NULL")
+        conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS nectars_inv TEXT DEFAULT '{}'")
+        conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS strength_charges INTEGER DEFAULT 0")
 
 # ---------------- USERS ----------------
 def get_user(user_id):
     with closing(get_conn()) as conn:
-        row = conn.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
+        row = conn.execute("SELECT * FROM users WHERE user_id=%s", (user_id,)).fetchone()
         return dict(row) if row else None
 
 def user_exists(user_id):
@@ -128,22 +87,22 @@ def create_user(user_id, username):
     with closing(get_conn()) as conn, conn:
         conn.execute(
             "INSERT INTO users (user_id, username, nickname, registered_at, last_hp_regen_ts) "
-            "VALUES (?, ?, ?, ?, ?)",
+            "VALUES (%s, %s, %s, %s, %s)",
             (user_id, username, username, int(time.time()), int(time.time())),
         )
 
 def update_user(user_id, **fields):
     if not fields:
         return
-    keys = ", ".join(f"{k}=?" for k in fields)
+    keys = ", ".join(f"{k}=%s" for k in fields)
     values = list(fields.values()) + [user_id]
     with closing(get_conn()) as conn, conn:
-        conn.execute(f"UPDATE users SET {keys} WHERE user_id=?", values)
+        conn.execute(f"UPDATE users SET {keys} WHERE user_id=%s", values)
 
 def try_spend(user_id, field, amount):
     with closing(get_conn()) as conn, conn:
         cur = conn.execute(
-            f"UPDATE users SET {field} = {field} - ? WHERE user_id=? AND {field} >= ?",
+            f"UPDATE users SET {field} = {field} - %s WHERE user_id=%s AND {field} >= %s",
             (amount, user_id, amount),
         )
         return cur.rowcount > 0
@@ -151,7 +110,7 @@ def try_spend(user_id, field, amount):
 def try_start_dig(user_id, duration_seconds):
     with closing(get_conn()) as conn, conn:
         cur = conn.execute(
-            "UPDATE users SET dig_start_ts=?, dig_duration_seconds=? WHERE user_id=? AND dig_start_ts IS NULL",
+            "UPDATE users SET dig_start_ts=%s, dig_duration_seconds=%s WHERE user_id=%s AND dig_start_ts IS NULL",
             (int(time.time()), duration_seconds, user_id),
         )
         return cur.rowcount > 0
@@ -159,7 +118,7 @@ def try_start_dig(user_id, duration_seconds):
 def try_collect_dig(user_id, expected_start_ts):
     with closing(get_conn()) as conn, conn:
         cur = conn.execute(
-            "UPDATE users SET dig_start_ts=NULL, dig_duration_seconds=NULL WHERE user_id=? AND dig_start_ts=?",
+            "UPDATE users SET dig_start_ts=NULL, dig_duration_seconds=NULL WHERE user_id=%s AND dig_start_ts=%s",
             (user_id, expected_start_ts),
         )
         return cur.rowcount > 0
@@ -167,18 +126,18 @@ def try_collect_dig(user_id, expected_start_ts):
 def try_start_new_hunt(user_id, monster_json, cur_hp, now):
     with closing(get_conn()) as conn, conn:
         cur = conn.execute(
-            "UPDATE users SET in_hunt=1, monster_json=?, cur_hp=?, last_hp_regen_ts=? "
-            "WHERE user_id=? AND in_hunt=0",
+            "UPDATE users SET in_hunt=1, monster_json=%s, cur_hp=%s, last_hp_regen_ts=%s "
+            "WHERE user_id=%s AND in_hunt=0",
             (monster_json, cur_hp, now, user_id),
         )
         return cur.rowcount > 0
 
 def try_apply_attack_result(user_id, expected_monster_json, **updates):
-    set_clause = ", ".join(f"{k}=?" for k in updates)
+    set_clause = ", ".join(f"{k}=%s" for k in updates)
     values = list(updates.values()) + [user_id, expected_monster_json]
     with closing(get_conn()) as conn, conn:
         cur = conn.execute(
-            f"UPDATE users SET {set_clause} WHERE user_id=? AND monster_json=? AND in_hunt=1",
+            f"UPDATE users SET {set_clause} WHERE user_id=%s AND monster_json=%s AND in_hunt=1",
             values,
         )
         return cur.rowcount > 0
@@ -186,7 +145,7 @@ def try_apply_attack_result(user_id, expected_monster_json, **updates):
 def get_top_players(limit=10):
     with closing(get_conn()) as conn:
         rows = conn.execute(
-            "SELECT nickname, crab_level, molts, max_meters FROM users ORDER BY molts DESC, crab_level DESC LIMIT ?",
+            "SELECT nickname, crab_level, molts, max_meters FROM users ORDER BY molts DESC, crab_level DESC LIMIT %s",
             (limit,),
         ).fetchall()
         return [dict(r) for r in rows]
@@ -194,14 +153,14 @@ def get_top_players(limit=10):
 def find_user_by_nickname(nickname):
     with closing(get_conn()) as conn:
         row = conn.execute(
-            "SELECT * FROM users WHERE nickname = ? COLLATE NOCASE LIMIT 1", (nickname,)
+            "SELECT * FROM users WHERE LOWER(nickname) = LOWER(%s) LIMIT 1", (nickname,)
         ).fetchone()
         return dict(row) if row else None
 
 def get_random_players(exclude_user_id, limit=3):
     with closing(get_conn()) as conn:
         rows = conn.execute(
-            "SELECT * FROM users WHERE user_id != ? ORDER BY RANDOM() LIMIT ?",
+            "SELECT * FROM users WHERE user_id != %s ORDER BY RANDOM() LIMIT %s",
             (exclude_user_id, limit),
         ).fetchall()
         return [dict(r) for r in rows]
@@ -210,94 +169,94 @@ def get_random_players(exclude_user_id, limit=3):
 def add_stone(user_id, color, level, amount=1):
     with closing(get_conn()) as conn, conn:
         conn.execute(
-            "INSERT INTO stones (user_id, color, level, count) VALUES (?, ?, ?, ?) "
-            "ON CONFLICT(user_id, color, level) DO UPDATE SET count = count + ?",
+            "INSERT INTO stones (user_id, color, level, count) VALUES (%s, %s, %s, %s) "
+            "ON CONFLICT(user_id, color, level) DO UPDATE SET count = count + %s",
             (user_id, color, level, amount, amount),
         )
 
 def get_stones(user_id):
     with closing(get_conn()) as conn:
-        rows = conn.execute("SELECT color, level, count FROM stones WHERE user_id=? AND count > 0", (user_id,)).fetchall()
+        rows = conn.execute("SELECT color, level, count FROM stones WHERE user_id=%s AND count > 0", (user_id,)).fetchall()
         return [dict(r) for r in rows]
 
 def add_resource(user_id, key, amount=1):
     with closing(get_conn()) as conn, conn:
         conn.execute(
-            "INSERT INTO resources (user_id, key, count) VALUES (?, ?, ?) "
-            "ON CONFLICT(user_id, key) DO UPDATE SET count = count + ?",
+            "INSERT INTO resources (user_id, key, count) VALUES (%s, %s, %s) "
+            "ON CONFLICT(user_id, key) DO UPDATE SET count = count + %s",
             (user_id, key, amount, amount),
         )
 
 def get_resources(user_id):
     with closing(get_conn()) as conn:
-        rows = conn.execute("SELECT key, count FROM resources WHERE user_id=?", (user_id,)).fetchall()
+        rows = conn.execute("SELECT key, count FROM resources WHERE user_id=%s", (user_id,)).fetchall()
         return {r["key"]: r["count"] for r in rows}
 
 def try_craft(user_id, recipe):
     with closing(get_conn()) as conn, conn:
-        current = {r["key"]: r["count"] for r in conn.execute("SELECT key, count FROM resources WHERE user_id=?", (user_id,)).fetchall()}
+        current = {r["key"]: r["count"] for r in conn.execute("SELECT key, count FROM resources WHERE user_id=%s", (user_id,)).fetchall()}
         for key, need in recipe.items():
             if current.get(key, 0) < need: return False
         for key, need in recipe.items():
-            conn.execute("UPDATE resources SET count = count - ? WHERE user_id=? AND key=?", (need, user_id, key))
+            conn.execute("UPDATE resources SET count = count - %s WHERE user_id=%s AND key=%s", (need, user_id, key))
         return True
 
 # ---------------- НОВЫЕ МУТАЦИИ V3 И ЭВОЛЮЦИЯ ----------------
 def get_user_mutations_v3(user_id):
     with closing(get_conn()) as conn:
-        rows = conn.execute("SELECT * FROM mutations_v3 WHERE user_id=?", (user_id,)).fetchall()
+        rows = conn.execute("SELECT * FROM mutations_v3 WHERE user_id=%s", (user_id,)).fetchall()
         return [dict(r) for r in rows]
 
 def add_new_mutation_v3(user_id, variant_key, is_active):
     with closing(get_conn()) as conn, conn:
         conn.execute(
-            "INSERT OR IGNORE INTO mutations_v3 (user_id, variant_key, is_active, level, equipped) VALUES (?, ?, ?, 1, 0)",
+            "INSERT INTO mutations_v3 (user_id, variant_key, is_active, level, equipped) VALUES (%s, %s, %s, 1, 0) ON CONFLICT DO NOTHING",
             (user_id, variant_key, is_active)
         )
 
 def equip_active_mutation(user_id, variant_key):
     with closing(get_conn()) as conn, conn:
-        conn.execute("UPDATE mutations_v3 SET equipped=1 WHERE user_id=? AND variant_key=?", (user_id, variant_key))
+        conn.execute("UPDATE mutations_v3 SET equipped=1 WHERE user_id=%s AND variant_key=%s", (user_id, variant_key))
 
 def unequip_active_mutation(user_id, variant_key):
     with closing(get_conn()) as conn, conn:
-        conn.execute("UPDATE mutations_v3 SET equipped=0 WHERE user_id=? AND variant_key=?", (user_id, variant_key))
+        conn.execute("UPDATE mutations_v3 SET equipped=0 WHERE user_id=%s AND variant_key=%s", (user_id, variant_key))
 
 def upgrade_mutation_v3(user_id, variant_key):
     with closing(get_conn()) as conn, conn:
-        conn.execute("UPDATE mutations_v3 SET level = level + 1 WHERE user_id=? AND variant_key=?", (user_id, variant_key))
+        conn.execute("UPDATE mutations_v3 SET level = level + 1 WHERE user_id=%s AND variant_key=%s", (user_id, variant_key))
 
 def update_evolution_tree(user_id, new_stage, node_key):
     """Обновляет этап эволюции и добавляет новый узел в древо"""
     with closing(get_conn()) as conn, conn:
-        row = conn.execute("SELECT evolution_tree FROM users WHERE user_id=?", (user_id,)).fetchone()
+        row = conn.execute("SELECT evolution_tree FROM users WHERE user_id=%s", (user_id,)).fetchone()
         tree = json.loads(row["evolution_tree"]) if row and row["evolution_tree"] else []
         tree.append(node_key)
         conn.execute(
-            "UPDATE users SET evolution_stage=?, evolution_tree=? WHERE user_id=?",
+            "UPDATE users SET evolution_stage=%s, evolution_tree=%s WHERE user_id=%s",
             (new_stage, json.dumps(tree), user_id)
         )
 
 # ---------------- СУНДУКИ И ИВЕНТЫ ----------------
 def add_chest(user_id, chest_type, amount=1):
     with closing(get_conn()) as conn, conn:
-        conn.execute("INSERT INTO chests (user_id, chest_type, count) VALUES (?, ?, ?) ON CONFLICT(user_id, chest_type) DO UPDATE SET count = count + ?", (user_id, chest_type, amount, amount))
+        conn.execute("INSERT INTO chests (user_id, chest_type, count) VALUES (%s, %s, %s) ON CONFLICT(user_id, chest_type) DO UPDATE SET count = count + %s", (user_id, chest_type, amount, amount))
 
 def get_chests(user_id):
     with closing(get_conn()) as conn:
-        rows = conn.execute("SELECT chest_type, count FROM chests WHERE user_id=? AND count > 0", (user_id,)).fetchall()
+        rows = conn.execute("SELECT chest_type, count FROM chests WHERE user_id=%s AND count > 0", (user_id,)).fetchall()
         return {r["chest_type"]: r["count"] for r in rows}
 
 def try_spend_chest(user_id, chest_type, amount=1):
     with closing(get_conn()) as conn, conn:
-        cur = conn.execute("UPDATE chests SET count = count - ? WHERE user_id=? AND chest_type=? AND count >= ?", (amount, user_id, chest_type, amount))
+        cur = conn.execute("UPDATE chests SET count = count - %s WHERE user_id=%s AND chest_type=%s AND count >= %s", (amount, user_id, chest_type, amount))
         return cur.rowcount > 0
 
 def create_event(name, description, duration_seconds):
     now = int(time.time())
     with closing(get_conn()) as conn, conn:
-        cur = conn.execute("INSERT INTO events (name, description, started_at, ends_at, active) VALUES (?, ?, ?, ?, 1)", (name, description, now, now + duration_seconds))
-        return cur.lastrowid
+        cur = conn.execute("INSERT INTO events (name, description, started_at, ends_at, active) VALUES (%s, %s, %s, %s, 1) RETURNING id", (name, description, now, now + duration_seconds))
+        return cur.fetchone()["id"]
 
 def get_active_event():
     with closing(get_conn()) as conn:
@@ -306,21 +265,21 @@ def get_active_event():
 
 def add_event_damage(event_id, user_id, damage):
     with closing(get_conn()) as conn, conn:
-        conn.execute("INSERT INTO event_damage (event_id, user_id, damage) VALUES (?, ?, ?) ON CONFLICT(event_id, user_id) DO UPDATE SET damage = damage + ?", (event_id, user_id, damage, damage))
+        conn.execute("INSERT INTO event_damage (event_id, user_id, damage) VALUES (%s, %s, %s) ON CONFLICT(event_id, user_id) DO UPDATE SET damage = damage + %s", (event_id, user_id, damage, damage))
 
 def get_event_leaderboard(event_id, limit=50):
     with closing(get_conn()) as conn:
-        rows = conn.execute("SELECT user_id, damage FROM event_damage WHERE event_id=? ORDER BY damage DESC LIMIT ?", (event_id, limit)).fetchall()
+        rows = conn.execute("SELECT user_id, damage FROM event_damage WHERE event_id=%s ORDER BY damage DESC LIMIT %s", (event_id, limit)).fetchall()
         return [dict(r) for r in rows]
 
 def get_all_event_participants(event_id):
     with closing(get_conn()) as conn:
-        rows = conn.execute("SELECT user_id, damage FROM event_damage WHERE event_id=? ORDER BY damage DESC", (event_id,)).fetchall()
+        rows = conn.execute("SELECT user_id, damage FROM event_damage WHERE event_id=%s ORDER BY damage DESC", (event_id,)).fetchall()
         return [dict(r) for r in rows]
 
 def close_event(event_id):
     with closing(get_conn()) as conn, conn:
-        conn.execute("UPDATE events SET active=0 WHERE id=?", (event_id,))
+        conn.execute("UPDATE events SET active=0 WHERE id=%s", (event_id,))
 
 # ---------------- БУФЕРИЗАЦИЯ ----------------
 async def add_to_buffer(redis, user_id: int, gold: int = 0, kills: int = 0, cur_meters: int = 0, max_meters: int = 0, cur_hp: float = None, last_hp_regen_ts: int = None):
@@ -349,17 +308,17 @@ async def flush_user_buffer(redis, user_id: int):
     def _atomic_db_update():
         with closing(get_conn()) as conn, conn:
             query = """
-                UPDATE users SET gold = gold + ?, total_earned_gold = total_earned_gold + ?, kills = kills + ?,
-                cur_meters = CASE WHEN ? > 0 THEN ? ELSE cur_meters END, max_meters = MAX(max_meters, ?)
+                UPDATE users SET gold = gold + %s, total_earned_gold = total_earned_gold + %s, kills = kills + %s,
+                cur_meters = CASE WHEN %s > 0 THEN %s ELSE cur_meters END, max_meters = GREATEST(max_meters, %s)
             """
             params = [gold, gold, kills, cur_meters, cur_meters, max_meters]
             if raw_hp is not None:
-                query += ", cur_hp = ?"
+                query += ", cur_hp = %s"
                 params.append(float(raw_hp))
             if raw_regen_ts is not None:
-                query += ", last_hp_regen_ts = ?"
+                query += ", last_hp_regen_ts = %s"
                 params.append(int(raw_regen_ts))
-            query += " WHERE user_id = ?"
+            query += " WHERE user_id = %s"
             params.append(user_id)
             conn.execute(query, params)
 
@@ -367,57 +326,79 @@ async def flush_user_buffer(redis, user_id: int):
     await redis.delete(key)
     return True
 
-# ---------------- НЕКТАРЫ ----------------
+# ---------------- NECTARS ----------------
 async def auto_update_db_nectars():
-    async with aiosqlite.connect(DB_PATH) as db:
-        try:
-            await db.execute("ALTER TABLE users ADD COLUMN active_nectar TEXT DEFAULT NULL")
-            await db.execute("ALTER TABLE users ADD COLUMN nectars_inv TEXT DEFAULT '{}'")
-            await db.execute("ALTER TABLE users ADD COLUMN strength_charges INTEGER DEFAULT 0")
-            await db.commit()
-        except Exception:
-            pass
+    # Columns are created by init_db() so schema setup remains synchronous/atomic.
+    return None
 
 async def get_nectars_data(user_id):
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        cursor = await db.execute("SELECT active_nectar, nectars_inv, strength_charges FROM users WHERE user_id = ?", (user_id,))
-        row = await cursor.fetchone()
-        if row: return {"active_nectar": row["active_nectar"], "nectars_inv": json.loads(row["nectars_inv"] or "{}"), "strength_charges": row["strength_charges"]}
-        return {"active_nectar": None, "nectars_inv": {}, "strength_charges": 0}
+    def _read():
+        with closing(get_conn()) as conn:
+            row = conn.execute(
+                "SELECT active_nectar, nectars_inv, strength_charges FROM users WHERE user_id=%s",
+                (user_id,),
+            ).fetchone()
+            if row:
+                return {
+                    "active_nectar": row["active_nectar"],
+                    "nectars_inv": json.loads(row["nectars_inv"] or "{}"),
+                    "strength_charges": row["strength_charges"],
+                }
+            return {"active_nectar": None, "nectars_inv": {}, "strength_charges": 0}
+    return await run_async(_read)
 
 async def update_nectars_data(user_id, active_nectar=False, nectars_inv=None, strength_charges=None):
-    async with aiosqlite.connect(DB_PATH) as db:
-        updates = []
-        params = []
-        if active_nectar is not False: 
-            updates.append("active_nectar = ?")
-            params.append(active_nectar)
-        if nectars_inv is not None:
-            updates.append("nectars_inv = ?")
-            params.append(json.dumps(nectars_inv))
-        if strength_charges is not None:
-            updates.append("strength_charges = ?")
-            params.append(strength_charges)
-        if updates:
-            params.append(user_id)
-            await db.execute(f"UPDATE users SET {', '.join(updates)} WHERE user_id = ?", params)
-            await db.commit()
+    updates, params = [], []
+    if active_nectar is not False:
+        updates.append("active_nectar = %s")
+        params.append(active_nectar)
+    if nectars_inv is not None:
+        updates.append("nectars_inv = %s")
+        params.append(json.dumps(nectars_inv))
+    if strength_charges is not None:
+        updates.append("strength_charges = %s")
+        params.append(strength_charges)
+    if updates:
+        params.append(user_id)
+        def _write():
+            with closing(get_conn()) as conn, conn:
+                conn.execute(f"UPDATE users SET {', '.join(updates)} WHERE user_id = %s", params)
+        await run_async(_write)
+
+def try_redeem_promo(user_id, code, gold=0, dna=0, shells=0, boost=False):
+    """Atomically redeem a promo once and grant its rewards."""
+    with closing(get_conn()) as conn, conn:
+        inserted = conn.execute(
+            "INSERT INTO promo_redemptions(user_id,code,redeemed_at) VALUES(%s,%s,%s) "
+            "ON CONFLICT(user_id,code) DO NOTHING RETURNING user_id",
+            (user_id, code, int(time.time())),
+        ).fetchone()
+        if not inserted:
+            return False
+        cur = conn.execute(
+            "UPDATE users SET gold=gold+%s, dna_points=dna_points+%s, "
+            "nautilus_shells=nautilus_shells+%s, "
+            "permanent_boost=CASE WHEN %s THEN 1 ELSE permanent_boost END WHERE user_id=%s",
+            (gold, dna, shells, bool(boost), user_id),
+        )
+        if cur.rowcount == 0:
+            raise ValueError(f"Cannot redeem promo for missing user {user_id}")
+        return True
 
 def try_spend_stone(user_id, color, level, count):
     with closing(get_conn()) as conn, conn:
-        cursor = conn.execute("SELECT count FROM stones WHERE user_id = ? AND color = ? AND level = ?", (user_id, color, level))
+        cursor = conn.execute("SELECT count FROM stones WHERE user_id = %s AND color = %s AND level = %s", (user_id, color, level))
         row = cursor.fetchone()
-        if row and row[0] >= count:
-            conn.execute("UPDATE stones SET count = count - ? WHERE user_id = ? AND color = ? AND level = ?", (count, user_id, color, level))
+        if row and row["count"] >= count:
+            conn.execute("UPDATE stones SET count = count - %s WHERE user_id = %s AND color = %s AND level = %s", (count, user_id, color, level))
             return True
         return False
 
 def try_spend_resource(user_id, resource_key, count):
     with closing(get_conn()) as conn, conn:
-        cursor = conn.execute("SELECT count FROM resources WHERE user_id = ? AND key = ?", (user_id, resource_key))
+        cursor = conn.execute("SELECT count FROM resources WHERE user_id = %s AND key = %s", (user_id, resource_key))
         row = cursor.fetchone()
         if row and row[0] >= count:
-            conn.execute("UPDATE resources SET count = count - ? WHERE user_id = ? AND key = ?", (count, user_id, resource_key))
+            conn.execute("UPDATE resources SET count = count - %s WHERE user_id = %s AND key = %s", (count, user_id, resource_key))
             return True
         return False
