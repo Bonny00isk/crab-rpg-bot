@@ -12,7 +12,7 @@ from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.storage.redis import DefaultKeyBuilder, RedisStorage
-from aiogram.types import Update
+from aiogram.types import Update, MenuButtonWebApp, WebAppInfo
 from aiohttp import web
 from redis.asyncio import Redis
 
@@ -53,6 +53,8 @@ async def create_fsm_storage():
 
 async def start_health_server(bot, dp, webhook_url=None):
     app = web.Application()
+    from webapp_api import setup_webapp
+    setup_webapp(app)
 
     async def health(_request):
         return web.json_response({"ok": True, "service": "crab-rpg-bot", "mode": "webhook" if webhook_url else "polling"})
@@ -115,6 +117,13 @@ async def main():
         dp.include_router(router)
 
     webhook_url = (os.getenv("WEBHOOK_URL") or os.getenv("RENDER_EXTERNAL_URL") or "").strip()
+    app_url = (os.getenv("WEBAPP_URL") or (webhook_url.rstrip("/") + "/app" if webhook_url else "")).strip()
+    if app_url:
+        try:
+            await bot.set_chat_menu_button(menu_button=MenuButtonWebApp(text="🦀 Играть", web_app=WebAppInfo(url=app_url)))
+            logger.info("Telegram Mini App menu button configured: %s", app_url)
+        except Exception:
+            logger.exception("Could not configure Mini App menu button")
     health_runner = None
     tasks = []
     try:
