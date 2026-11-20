@@ -130,7 +130,9 @@ async def api_choose_crab(request):
     if user and user.get("crab_type"):
         raise web.HTTPConflict(text="Crab already selected")
     await database.run_async(database.update_user, uid, crab_type=crab_type, cur_hp=CRABS[crab_type]["max_hp"])
-    payload = _user_json(await database.run_async(database.get_user, uid))\n    payload["is_admin"] = uid in ADMIN_IDS\n    return web.json_response(payload)
+    payload = _user_json(await database.run_async(database.get_user, uid))
+    payload["is_admin"] = uid in ADMIN_IDS
+    return web.json_response(payload)
 
 
 async def api_level_up(request):
