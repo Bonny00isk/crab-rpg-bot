@@ -24,7 +24,7 @@ async def start_boss(message: Message):
     args = message.text.split(maxsplit=1)
     if len(args) < 2 or "|" not in args[1]:
         await message.answer(
-            "Формат: /startboss <часов> <имя босса> | <описание>\n"
+            "Формат: /startboss &lt;часов&gt; &lt;имя босса&gt; | &lt;описание&gt;\n"
             "Пример: /startboss 72 Кракен | Повелитель морей пробудился!"
         )
         return
