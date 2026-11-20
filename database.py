@@ -283,6 +283,27 @@ def close_event(event_id):
 
 # ---------------- БУФЕРИЗАЦИЯ ----------------
 async def add_to_buffer(redis, user_id: int, gold: int = 0, kills: int = 0, cur_meters: int = 0, max_meters: int = 0, cur_hp: float = None, last_hp_regen_ts: int = None):
+    # Redis is optional. Without it, persist immediately so a free host restart
+    # cannot discard rewards or player progress.
+    if redis is None:
+        def _save():
+            with closing(get_conn()) as conn, conn:
+                query = """UPDATE users SET gold=gold+%s, total_earned_gold=total_earned_gold+%s,
+                    kills=kills+%s,
+                    cur_meters=CASE WHEN %s>0 THEN %s ELSE cur_meters END,
+                    max_meters=GREATEST(max_meters,%s)"""
+                params = [gold, gold, kills, cur_meters, cur_meters, max_meters]
+                if cur_hp is not None:
+                    query += ", cur_hp=%s"
+                    params.append(float(cur_hp))
+                if last_hp_regen_ts is not None:
+                    query += ", last_hp_regen_ts=%s"
+                    params.append(int(last_hp_regen_ts))
+                query += " WHERE user_id=%s"
+                params.append(user_id)
+                conn.execute(query, params)
+        await run_async(_save)
+        return
     key = f"user_buffer:{user_id}"
     await redis.hincrby(key, "gold", gold)
     await redis.hincrby(key, "kills", kills)
@@ -295,6 +316,8 @@ async def add_to_buffer(redis, user_id: int, gold: int = 0, kills: int = 0, cur_
     await redis.hset(key, "last_action_ts", int(time.time()))
 
 async def flush_user_buffer(redis, user_id: int):
+    if redis is None:
+        return False
     key = f"user_buffer:{user_id}"
     buffer_data = await redis.hgetall(key)
     if not buffer_data: return False
