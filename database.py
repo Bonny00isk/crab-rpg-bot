@@ -87,7 +87,7 @@ def create_user(user_id, username):
     with closing(get_conn()) as conn, conn:
         conn.execute(
             "INSERT INTO users (user_id, username, nickname, registered_at, last_hp_regen_ts) "
-            "VALUES (%s, %s, %s, %s, %s)",
+            "VALUES (%s, %s, %s, %s, %s) ON CONFLICT (user_id) DO NOTHING",
             (user_id, username, username, int(time.time()), int(time.time())),
         )
 
@@ -410,18 +410,16 @@ def try_redeem_promo(user_id, code, gold=0, dna=0, shells=0, boost=False):
 
 def try_spend_stone(user_id, color, level, count):
     with closing(get_conn()) as conn, conn:
-        cursor = conn.execute("SELECT count FROM stones WHERE user_id = %s AND color = %s AND level = %s", (user_id, color, level))
-        row = cursor.fetchone()
-        if row and row["count"] >= count:
-            conn.execute("UPDATE stones SET count = count - %s WHERE user_id = %s AND color = %s AND level = %s", (count, user_id, color, level))
-            return True
-        return False
+        cursor = conn.execute(
+            "UPDATE stones SET count = count - %s WHERE user_id = %s AND color = %s AND level = %s AND count >= %s",
+            (count, user_id, color, level, count),
+        )
+        return cursor.rowcount > 0
 
 def try_spend_resource(user_id, resource_key, count):
     with closing(get_conn()) as conn, conn:
-        cursor = conn.execute("SELECT count FROM resources WHERE user_id = %s AND key = %s", (user_id, resource_key))
-        row = cursor.fetchone()
-        if row and row[0] >= count:
-            conn.execute("UPDATE resources SET count = count - %s WHERE user_id = %s AND key = %s", (count, user_id, resource_key))
-            return True
-        return False
+        cursor = conn.execute(
+            "UPDATE resources SET count = count - %s WHERE user_id = %s AND key = %s AND count >= %s",
+            (count, user_id, resource_key, count),
+        )
+        return cursor.rowcount > 0
