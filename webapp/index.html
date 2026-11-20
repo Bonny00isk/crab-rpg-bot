@@ -134,7 +134,7 @@ window.mutAction=(a,k)=>action(async()=>{const r=await api('/api/mutations/actio
 window.nectarAction=(a,k)=>action(async()=>{await api('/api/nectar/action','POST',{action:a,key:k});await loadExtra();toast(a==='craft'?'Нектар создан!':'Нектар экипирован')});
 window.evolutionPick=k=>action(async()=>{await api('/api/evolution/pick','POST',{key:k});await loadExtra();toast('Эволюция выбрана!')});
 
-async function loadRandomPlayers(){try{const r=await api('/api/players/random');const el=document.getElementById('randombox');if(el)el.innerHTML=r.players.map(p=>'<div class="rowitem"><b>'+esc(p.nickname)+'<div class="sub">'+p.level+' ур. · '+p.molts+' линек · '+esc(p.zone)+'</div></b><button onclick="viewPlayer(\\''+p.nickname+'\\')">Профиль</button></div>').join('')}catch(e){toast(e.message)}}
+async function loadRandomPlayers(){try{const r=await api('/api/players/random');const el=document.getElementById('randombox');if(el)el.innerHTML=r.players.map(p=>'<div class="rowitem"><b>'+esc(p.nickname)+'<div class="sub">'+p.level+' ур. · '+p.molts+' линек · '+esc(p.zone)+'</div></b><button onclick="viewPlayer('+JSON.stringify(p.nickname)+')">Профиль</button></div>').join('')}catch(e){toast(e.message)}}
 window.randomPlayers=async()=>{currentView='random';await loadExtra();render()};
 window.viewPlayer=async n=>{try{playerData=await api('/api/player/search','POST',{nickname:n});currentView='player';await loadExtra();render()}catch(e){toast(e.message)}};
 
