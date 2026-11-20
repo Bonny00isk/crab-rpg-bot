@@ -28,7 +28,9 @@ def register_extra(app, auth, user_json):
             "mutations":[{"key":m["variant_key"],"name":(ACTIVE_MUTATIONS if m["is_active"] else PASSIVE_MUTATIONS).get(m["variant_key"],{}).get("name",m["variant_key"]),"active":bool(m["is_active"]),"level":m["level"],"equipped":bool(m["equipped"])} for m in muts],
             "chests":[{"key":k,"name":EVENT_CHESTS.get(int(k) if str(k).isdigit() else k,{}).get("name",str(k)),"count":v} for k,v in chests.items() if v>0],
             "nectar":nectar,
-            "nectars":[{"key":k,**v,"count":nectar["nectars_inv"].get(k,0)} for k,v in NECTARS_DATA.items()],\n            "passiveShop":[{"key":k,"name":v["name"],"cost":get_mutation_cost(sum(1 for m in muts if not m["is_active"]))} for k,v in PASSIVE_MUTATIONS.items() if not any(m["variant_key"]==k for m in muts)],\n            "crystal":__import__("data").CRABS[int(u["crab_type"])]["crystal"],
+            "nectars":[{"key":k,**v,"count":nectar["nectars_inv"].get(k,0)} for k,v in NECTARS_DATA.items()],
+            "passiveShop":[{"key":k,"name":v["name"],"cost":get_mutation_cost(sum(1 for m in muts if not m["is_active"]))} for k,v in PASSIVE_MUTATIONS.items() if not any(m["variant_key"]==k for m in muts)],
+            "crystal":__import__("data").CRABS[int(u["crab_type"])]["crystal"],
             "dig":{"start":u.get("dig_start_ts"),"duration":u.get("dig_duration_seconds"),"hours":DIG_DURATION_OPTIONS_HOURS},
             "evolution":{"stage":u.get("evolution_stage",0),"tree":json.loads(u.get("evolution_tree") or "[]"),"nodes":EVOLUTION_NODES},
             "stats":{"total_gold":u.get("total_earned_gold",0),"total_dna":u.get("total_dna_earned",0),"kills":u.get("kills",0),"boss_kills":u.get("boss_kills",0)}
