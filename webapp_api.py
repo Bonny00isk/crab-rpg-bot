@@ -206,12 +206,34 @@ async def api_hunt(request):
     return web.json_response({"event": "attack", "log": battle_log, "battle": None if not updates.get("in_hunt", 1) else {"name": monster["name"], "hp": monster["hp"], "max_hp": monster["max_hp"], "meters": monster.get("meters", 0), "art": monster.get("art", "")}, "state": _user_json(await database.run_async(database.get_user, uid))})
 
 
+
+async def api_level_up_max(request):
+    uid,_=_auth(request)
+    def upgrade():
+        with database.get_conn() as conn, conn.transaction():
+            user=conn.execute("SELECT crab_level,molts,gold FROM users WHERE user_id=%s FOR UPDATE",(uid,)).fetchone()
+            if not user: raise ValueError("Profile not found")
+            level=int(user["crab_level"]); gold=int(user["gold"]); total=0; count=0
+            while count<5000:
+                cost=level_up_cost(level,user["molts"])
+                if total+cost>gold: break
+                total+=cost; count+=1; level+=1
+            if count==0: raise RuntimeError("Not enough gold")
+            conn.execute("UPDATE users SET crab_level=%s,gold=gold-%s WHERE user_id=%s",(level,total,uid))
+            return count,total
+    try: count,total=await database.run_async(upgrade)
+    except RuntimeError as exc: raise web.HTTPConflict(text=str(exc))
+    except ValueError as exc: raise web.HTTPBadRequest(text=str(exc))
+    return web.json_response({"ok":True,"levels":count,"cost":total,"state":_user_json(await database.run_async(database.get_user,uid))})
+
+
 def setup_webapp(app):
     app.router.add_get("/app", lambda request: web.FileResponse("webapp/index.html"))
     app.router.add_get("/app/", lambda request: web.FileResponse("webapp/index.html"))
     app.router.add_get("/api/state", api_state)
     app.router.add_post("/api/choose-crab", api_choose_crab)
     app.router.add_post("/api/level-up", api_level_up)
+    app.router.add_post("/api/level-up/max", api_level_up_max)
     app.router.add_post("/api/hunt", api_hunt)
     from webapp_extra import register_extra
     register_extra(app, _auth, _user_json)
