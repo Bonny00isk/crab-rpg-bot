@@ -63,7 +63,7 @@ function nav(){
 }
 async function loadExtra(){try{extraData=await api('/api/game-data')}catch(e){toast(e.message)}}
 function renderSection(){
- if(!state||!state.registered){renderHomeBase();return}
+ if(!state||!state.registered||state.needs_crab){renderHomeBase();app.insertAdjacentHTML('beforeend',nav());return}
  const x=extraData||{stones:[],resources:[],mutations:[],chests:[],nectar:{},nectars:[],dig:{},evolution:{nodes:{},tree:[]}};
  let title='',body='';
  if(currentView==='inventory'){
@@ -112,7 +112,7 @@ window.buyShell=k=>action(async()=>{const r=await api('/api/shop/shell','POST',{
 window.openChest=k=>action(async()=>{const r=await api('/api/chest/open','POST',{key:k});await loadExtra();toast('Сундук открыт! Раковины: '+r.loot.shells+', камней: '+r.loot.stones.length+(r.loot.mutation?' · мутация получена':''))});
 window.redeemPromo=()=>{const code=prompt('Введи промокод:');if(code)action(async()=>{const r=await api('/api/promo','POST',{code});await refresh();toast('Промокод активирован!')})};
 
-window.molt=()=>{if(!confirm('Линька сбросит уровень, золото и эволюцию. Продолжить?'))return;action(async()=>{const r=await api('/api/molt','POST',{});state=r.state;await loadExtra();toast('Линька завершена! Получено '+num(r.dna)+' ДНК')})};
+window.molt=()=>{if(!confirm('Линька сбросит уровень, золото и эволюцию. Продолжить?'))return;action(async()=>{const r=await api('/api/molt','POST',{});state=r.state;currentView='home';await loadExtra();toast('Линька завершена! Получено '+num(r.dna)+' ДНК')})};
 async function loadEvents(){try{const r=await api('/api/events');const el=document.getElementById('eventsbox');if(!el)return;if(!r.unlocked){el.innerHTML='<h3>🐉 Ивенты закрыты</h3><p>Нужно выполнить хотя бы одно условие: '+r.requirements.molts+' линьки, рекорд '+r.requirements.meters+' м или '+r.requirements.kills+' убийств.</p>';return}if(!r.event){el.innerHTML='<h3>🌊 Активных ивентов нет</h3><p>События запускаются автоматически. Загляни позже.</p>';return}el.innerHTML='<h3>'+esc(r.event.name)+'</h3><p>'+esc(r.event.description)+'</p><h3>Урон игроков</h3>'+r.event.leaderboard.map((p,i)=>'<div class="rowitem"><b>#'+(i+1)+' '+esc(p.nickname)+'</b><span>'+num(p.damage)+'</span></div>').join('')}catch(e){toast(e.message)}}
 
 window.goView=async v=>{currentView=v;if(v==='home'){render();return}await loadExtra();render();if(v==='shop')await loadShop()};
