@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#071522">
+<title>Crab RPG · Abyss</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+:root{color-scheme:dark;--bg:#06131f;--panel:#102536;--panel2:#132d40;--line:#234458;--cyan:#70e4e4;--blue:#49a9d8;--gold:#ffd27a;--text:#edf8ff;--muted:#91adbf;--danger:#ff8585}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(120% 55% at 50% -10%,#1b4c64 0%,#0b2435 42%,var(--bg) 82%);font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--text);min-height:100vh;padding:env(safe-area-inset-top) 16px calc(20px + env(safe-area-inset-bottom));}
+main{max-width:520px;margin:0 auto}.top{display:flex;align-items:center;justify-content:space-between;padding:20px 2px 16px}.brand{font-size:12px;letter-spacing:2.4px;color:var(--cyan);font-weight:800}.brand strong{display:block;font-size:24px;letter-spacing:-.6px;color:white;margin-top:4px}.avatar{width:48px;height:48px;border-radius:17px;background:linear-gradient(145deg,#2a6b83,#112b40);border:1px solid #4789a0;display:grid;place-items:center;font-size:27px;box-shadow:0 8px 24px #0004}
+.eyebrow{font-size:11px;text-transform:uppercase;letter-spacing:1.6px;color:var(--muted);font-weight:700}.panel{background:linear-gradient(145deg,#132d40ee,#0d2131f2);border:1px solid #24465b;border-radius:22px;padding:18px;margin:12px 0;box-shadow:0 12px 32px #0002}.hero{position:relative;overflow:hidden;padding:20px}.hero:after{content:"";position:absolute;width:180px;height:180px;border-radius:50%;right:-80px;top:-90px;background:#4cc5d414;border:1px solid #4cc5d422}.hero-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.name{font-size:24px;font-weight:800;letter-spacing:-.5px;margin:5px 0}.rank{font-size:12px;color:var(--gold);background:#614c263f;border:1px solid #8e713a66;padding:6px 9px;border-radius:20px;white-space:nowrap}.crab-art{height:126px;display:grid;place-items:center;font-size:82px;filter:drop-shadow(0 12px 18px #42d4e433);animation:float 3s ease-in-out infinite}.sub{color:var(--muted);font-size:13px}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:15px}.stat{background:#07192588;border:1px solid #234355;border-radius:14px;padding:12px 10px}.stat b{display:block;font-size:17px;margin-top:5px}.stat span{font-size:11px;color:var(--muted)}.section-title{font-size:16px;font-weight:800;margin:2px 0 14px}.actions{display:grid;grid-template-columns:1fr 1fr;gap:10px}.btn{border:0;border-radius:15px;padding:15px 12px;font-size:14px;font-weight:800;color:#06202b;background:linear-gradient(135deg,#8af2e5,#4eb8d9);box-shadow:0 8px 22px #1d9db533;cursor:pointer}.btn.secondary{background:linear-gradient(135deg,#213f55,#193246);border:1px solid #365a70;color:#e9f8ff;box-shadow:none}.btn.gold{background:linear-gradient(135deg,#ffe5a3,#eab85d);color:#39280b;box-shadow:0 8px 22px #d7a54a22}.btn:disabled{opacity:.45;cursor:default}.bar{height:7px;background:#061722;border-radius:10px;overflow:hidden;margin-top:10px}.bar i{display:block;height:100%;background:linear-gradient(90deg,#4eabc9,#83eee0);border-radius:10px}.battle{border-color:#7b493f;background:linear-gradient(145deg,#2c1d2a,#122332)}.monster{font-size:52px;text-align:center;margin:8px}.battle .bar i{background:linear-gradient(90deg,#ff765e,#ffc17b)}.log{font-size:13px;color:#c7dce7;line-height:1.5;margin-top:12px}.choices{display:grid;gap:10px}.choice{display:flex;align-items:center;gap:12px;width:100%;text-align:left;background:#0a1c2a;border:1px solid #2a4c61;border-radius:16px;padding:14px;color:var(--text);cursor:pointer}.choice .symbol{font-size:30px}.choice b{display:block;font-size:14px;margin-bottom:4px}.choice small{color:var(--muted);font-size:12px;line-height:1.35}.footer{text-align:center;color:#5f7e91;font-size:11px;padding:12px}.notice{padding:16px;border-radius:16px;background:#251f17;border:1px solid #6b5835;color:#ffe3a4;font-size:13px;line-height:1.5}.loading{padding:60px 0;text-align:center;color:var(--muted)}.spinner{display:inline-block;width:28px;height:28px;border:3px solid #315064;border-top-color:var(--cyan);border-radius:50%;animation:spin .8s linear infinite;margin-bottom:12px}.toast{position:fixed;left:16px;right:16px;bottom:calc(18px + env(safe-area-inset-bottom));max-width:488px;margin:auto;padding:13px 16px;border:1px solid #416579;border-radius:14px;background:#102b3beF;color:white;font-size:13px;box-shadow:0 12px 30px #0007;z-index:10}
+@keyframes float{50%{transform:translateY(-8px)}}@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<main id="app"><div class="loading"><div class="spinner"></div><div>Погружаемся в бездну…</div></div></main>
+<script>
+(() => {
+const tg=window.Telegram?.WebApp;
+const app=document.getElementById('app');
+let state=null, busy=false, lastLog='';
+if(tg){tg.ready();tg.expand();try{tg.setHeaderColor('#071522');tg.setBackgroundColor('#071522');tg.enableClosingConfirmation();}catch(e){}}
+const initData=tg?.initData||'';
+const user=tg?.initDataUnsafe?.user||{};
+const num=n=>Number(n||0).toLocaleString('ru-RU');
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function toast(t){const old=document.querySelector('.toast');if(old)old.remove();const el=document.createElement('div');el.className='toast';el.textContent=t;document.body.appendChild(el);setTimeout(()=>el.remove(),3200)}
+async function api(path,method='GET',body=null){
+ const res=await fetch(path,{method,headers:{'X-Telegram-Init-Data':initData,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});
+ if(!res.ok){let msg='Не удалось выполнить действие';try{msg=await res.text()}catch(e){};throw new Error(msg)}
+ return res.json();
+}
+function stats(){return state?.stats||{}}
+function render(){
+ if(!state){app.innerHTML='<div class="loading">Не удалось загрузить игру</div>';return}
+ if(!state.registered){app.innerHTML='<div class="top"><div class="brand">CRAB RPG<strong>ABYSS</strong></div><div class="avatar">🦀</div></div><div class="panel"><div class="notice">Профиль не найден. Нажми /start в боте, затем снова открой Web App.</div></div>';return}
+ const greeting=esc(state.nickname||user.first_name||'Путник');
+ let head='<div class="top"><div class="brand">CRAB RPG<strong>ABYSS</strong></div><div class="avatar">🦀</div></div>';
+ if(state.needs_crab){
+  app.innerHTML=head+'<section class="panel hero"><div class="eyebrow">Твоё путешествие начинается</div><div class="name">Выбери своего краба</div><p class="sub">У каждого вида свой стиль боя. Выбор определит начальные характеристики.</p><div class="crab-art">🦀</div><div class="choices">'+state.crabs.map(c=>'<button class="choice" onclick="chooseCrab('+c.id+')"><span class="symbol">'+(['🦀','🦞','🦐'][c.id-1]||'🦀')+'</span><span><b>'+esc(c.name)+'</b><small>'+esc(c.desc)+'</small></span></button>').join('')+'</div></section><div class="footer">Профиль привязан к твоему Telegram</div>';
+  return;
+ }
+ const s=stats(),inBattle=!!state.in_hunt,b=state.battle;
+ app.innerHTML=head+
+ '<section class="panel hero"><div class="hero-head"><div><div class="eyebrow">'+esc(state.zone)+'</div><div class="name">'+greeting+'</div><div class="sub">'+esc(state.crab_name)+' · уровень '+num(state.crab_level)+'</div></div><div class="rank">'+esc(state.rank)+'</div></div><div class="crab-art">'+(['🦀','🦞','🦐'][Number(state.crab_type)-1]||'🦀')+'</div><div class="stats"><div class="stat"><span>💰 Золото</span><b>'+num(state.gold)+'</b></div><div class="stat"><span>🧬 ДНК</span><b>'+num(state.dna_points)+'</b></div><div class="stat"><span>🐚 Раковины</span><b>'+num(state.shells)+'</b></div></div><div class="stats"><div class="stat"><span>🌊 Рекорд</span><b>'+num(state.max_meters)+' м</b></div><div class="stat"><span>☠️ Убийства</span><b>'+num(state.kills)+'</b></div><div class="stat"><span>🦋 Линьки</span><b>'+num(state.molts)+'</b></div></div></section>'+
+ (inBattle&&b?'<section class="panel battle"><div class="eyebrow">Сражение · '+num(b.meters)+' м</div><div class="section-title">'+esc(b.name)+'</div><div class="monster">🐙</div><div class="sub">Здоровье врага · '+num(b.hp)+' / '+num(b.max_hp)+'</div><div class="bar"><i style="width:'+Math.max(0,Math.min(100,100*b.hp/Math.max(1,b.max_hp)))+'%"></i></div>'+(lastLog?'<div class="log">'+esc(lastLog)+'</div>':'')+'</section>':'')+
+ '<section class="panel"><div class="section-title">'+(inBattle?'⚔️ Продолжить бой':'🌊 Исследовать глубины')+'</div><div class="actions"><button class="btn" onclick="hunt()" '+(busy?'disabled':'')+'>'+(inBattle?'✂️ Атаковать':'🔎 Выйти на охоту')+'</button><button class="btn gold" onclick="levelUp()" '+(busy||state.gold<state.level_cost?'disabled':'')+'>⬆️ +1 уровень<br><small style="font-size:11px;font-weight:600">Цена: '+num(state.level_cost)+' 💰</small></button></div><div class="sub" style="margin-top:13px">⚔️ Урон '+num(s.damage)+' · 🌊 Уклонение '+num(s.evasion)+'% · 🎯 Крит '+num(s.crit)+'%</div></section>'+
+ '<section class="panel"><div class="section-title">📍 Путь по бездне</div><div class="eyebrow">Текущая глубина</div><div class="name">'+num(state.cur_meters)+' м</div><div class="sub">Рекорд: '+num(state.max_meters)+' м</div><div class="bar"><i style="width:'+Math.min(100,state.max_meters/50)+'%"></i></div></section>'+
+ '<div class="footer">CRAB RPG · Сохранение в PostgreSQL · Telegram Mini App</div>';
+}
+async function refresh(){try{state=await api('/api/state');render()}catch(e){app.innerHTML='<div class="top"><div class="brand">CRAB RPG<strong>ABYSS</strong></div><div class="avatar">🦀</div></div><div class="panel"><div class="notice">'+(!initData?'Открой приложение через кнопку Web App внутри Telegram. Прямая ссылка в браузере не передаёт данные авторизации.':esc(e.message))+'</div></div>'}}
+async function action(fn){if(busy)return;busy=true;render();try{await fn()}catch(e){toast(e.message)}finally{busy=false;await refresh()}}
+window.chooseCrab=id=>action(async()=>{state=await api('/api/choose-crab','POST',{crab_type:id});toast('Краб выбран! Путь начинается.')});
+window.levelUp=()=>action(async()=>{const r=await api('/api/level-up','POST',{});state=r.state;toast('Уровень повышен!')});
+window.hunt=()=>action(async()=>{const r=await api('/api/hunt','POST',{});state=r.state;lastLog=r.log|| (r.event==='started'?'Враг появился. Атакуй!':'');toast(r.event==='started'?'Противник обнаружен!':(r.log||'Готово'))});
+if(!initData){app.innerHTML='<div class="top"><div class="brand">CRAB RPG<strong>ABYSS</strong></div><div class="avatar">🦀</div></div><div class="panel"><div class="notice">Чтобы открыть игру, запусти Crab RPG в Telegram и нажми кнопку Web App. Внешний браузер не передаёт Telegram initData.</div></div>'}else refresh();
+})();
+</script>
+</body>
+</html>
