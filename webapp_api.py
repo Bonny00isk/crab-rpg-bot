@@ -15,7 +15,7 @@ from data import CRABS
 from game_logic import (
     get_effective_stats, level_up_cost, get_depth_zone_name, get_molt_rank,
     roll_monster, player_attack, monster_attack, gold_reward, apply_idle_regen,
-    next_monster_meters, get_user_mutations_v3,  # imported defensively below
+    next_monster_meters,
 )
 
 logger = logging.getLogger("crab-rpg-webapp")
