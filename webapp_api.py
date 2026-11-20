@@ -194,6 +194,50 @@ async def api_hunt(request):
         await database.run_async(database.update_user, uid, in_hunt=0, monster_json=None)
         raise web.HTTPConflict(text="Battle reset. Press Hunt again.")
 
+
+    if action == "nectar":
+        nectar = await database.get_nectars_data(uid)
+        active = nectar.get("active_nectar")
+        inv = nectar.get("nectars_inv") or {}
+        if not active or int(inv.get(active,0)) <= 0:
+            raise web.HTTPConflict(text="No equipped nectar in inventory")
+        if active == "strength" and int(nectar.get("strength_charges",0)) > 0:
+            raise web.HTTPConflict(text="Strength nectar is already active")
+        inv[active] = int(inv.get(active,0))-1
+        await database.update_nectars_data(uid,nectars_inv=inv)
+        hp = float(user.get("cur_hp") or stats["max_hp"])
+        if active == "strength":
+            await database.update_nectars_data(uid,strength_charges=5)
+            log = "Нектар силы: +20% урона на 5 атак"
+        elif active == "refreshing":
+            heal = round(stats["max_hp"]*0.35)
+            hp = min(stats["max_hp"],hp+heal)
+            log = f"Освежающий нектар восстановил {heal} HP"
+        elif active == "rage":
+            sacrifice = round(stats["max_hp"]*0.15)
+            hp = max(0,hp-sacrifice)
+            monster["nectar_rage"] = True
+            log = f"Нектар ярости: −{sacrifice} HP, критические удары активированы"
+        elif active == "sparkling":
+            monster["nectar_sparkling"] = True
+            log = "Сверкающий нектар: золото с этого врага ×2.5"
+        else:
+            raise web.HTTPBadRequest(text="Unknown nectar")
+        incoming,dodged = monster_attack(monster,stats)
+        if monster.get("shield_active"):
+            incoming=int(incoming*(1-SHIELD_ABILITY.get("block_percent",80)/100))
+            monster["shield_active"]=False
+        hp=max(0,hp-incoming)
+        log += " · " + ("Уклонение от ответа!" if dodged else f"Враг нанёс −{incoming} HP")
+        if hp<=0:
+            back=max(0,int(user.get("cur_meters") or 0)-1)
+            updates={"in_hunt":0,"monster_json":None,"cur_hp":0,"cur_meters":back}
+        else:
+            updates={"monster_json":json.dumps(monster,ensure_ascii=False),"cur_hp":hp}
+        saved=await database.run_async(database.try_apply_attack_result,uid,user["monster_json"],**updates)
+        if not saved: raise web.HTTPConflict(text="Battle state changed. Refresh.")
+        return web.json_response({"event":"nectar","log":log,"state":_user_json(await database.run_async(database.get_user,uid))})
+
     if action == "ability":
         ability = body.get("ability")
         if ability == "shield":
