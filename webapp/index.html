@@ -131,4 +131,90 @@ if(!initData){app.innerHTML='<div class="top"><div class="brand">CRAB RPG<strong
 })();
 </script>
 </body>
+</html'<button class="btn secondary" onclick="battleAbility(\'unique\')" '+(busy||b.unique_used?'disabled':'')+'>'+esc(state.unique?.name||'🌟 Уникальная')+'</button></div>'+'</section>':'')+
+ '<section class="panel"><div class="section-title">'+(inBattle?'⚔️ Продолжить бой':'🌊 Исследовать глубины')+'</div><div class="actions"><button class="btn" onclick="hunt()" '+(busy?'disabled':'')+'>'+(inBattle?'✂️ Атаковать':'🔎 Выйти на охоту')+'</button><button class="btn gold" onclick="levelUp()" '+(busy||state.gold<state.level_cost?'disabled':'')+'>⬆️ +1 уровень<br><small style="font-size:11px;font-weight:600">Цена: '+num(state.level_cost)+' 💰</small></button></div><button class="btn secondary" style="width:100%;margin-top:10px" onclick="levelUpMax()">⬆️ Повысить максимально за доступное золото</button><div class="sub" style="margin-top:13px">⚔️ Урон '+num(s.damage)+' · 🌊 Уклонение '+num(s.evasion)+'% · 🎯 Крит '+num(s.crit)+'%</div></section>'+
+ '<section class="panel"><div class="section-title">📍 Путь по бездне</div><div class="eyebrow">Текущая глубина</div><div class="name">'+num(state.cur_meters)+' м</div><div class="sub">Рекорд: '+num(state.max_meters)+' м</div><div class="bar"><i style="width:'+Math.min(100,state.max_meters/50)+'%"></i></div></section>'+
+ '<div class="footer">CRAB RPG · Сохранение в PostgreSQL · Telegram Mini App</div>';
+}
+async function refresh(){try{state=await api('/api/state');render()}catch(e){app.innerHTML='<div class="top"><div class="brand">CRAB RPG<strong>ABYSS</strong></div><div class="avatar">🦀</div></div><div class="panel"><div class="notice">'+(!initData?'Открой приложение через кнопку Web App внутри Telegram. Прямая ссылка в браузере не передаёт данные авторизации.':esc(e.message))+'</div></div>'}}
+async function action(fn){if(busy)return;busy=true;render();try{await fn()}catch(e){toast(e.message)}finally{busy=false;await refresh()}}
+window.chooseCrab=id=>action(async()=>{state=await api('/api/choose-crab','POST',{crab_type:id});toast('Краб выбран! Путь начинается.')});
+window.levelUp=()=>action(async()=>{const r=await api('/api/level-up','POST',{});state=r.state;toast('Уровень повышен!')});
+window.levelUpMax=()=>action(async()=>{const r=await api('/api/level-up/max','POST',{});state=r.state;toast('Повышено на '+r.levels+' уровней за '+num(r.cost)+' золота')});
+window.battleAbility=a=>action(async()=>{const r=await api('/api/hunt','POST',{action:'ability',ability:a});state=r.state;lastLog=r.log||'Способность активирована';toast(lastLog)});
+window.hunt=()=>action(async()=>{const r=await api('/api/hunt','POST',{});state=r.state;lastLog=r.log|| (r.event==='started'?'Враг появился. Атакуй!':'');toast(r.event==='started'?'Противник обнаружен!':(r.log||'Готово'))});
+
+let currentView='home', extraData=null;
+const renderHomeBase=render;
+function nav(){
+ return '<nav class="appnav">'+[['home','🏠','Главная'],['inventory','🎒','Нора'],['dig','⛏️','Копать'],['mutations','🧬','Мутации'],['craft','🍯','Нектар'],['more','☰','Ещё']].map(([k,e,t])=>'<button class="'+(currentView===k?'active':'')+'" onclick="goView(\''+k+'\')"><span>'+e+'</span>'+t+'</button>').join('')+'</nav>';
+}
+async function loadExtra(){try{extraData=await api('/api/game-data')}catch(e){toast(e.message)}}
+function renderSection(){
+ if(!state||!state.registered||state.needs_crab){renderHomeBase();app.insertAdjacentHTML('beforeend',nav());return}
+ const x=extraData||{stones:[],resources:[],mutations:[],chests:[],nectar:{},nectars:[],dig:{},evolution:{nodes:{},tree:[]}};
+ let title='',body='';
+ if(currentView==='inventory'){
+  title='🎒 Нора';
+  body='<div class="stats"><div class="stat"><span>💰 Золото</span><b>'+num(state.gold)+'</b></div><div class="stat"><span>🧬 ДНК</span><b>'+num(state.dna_points)+'</b></div><div class="stat"><span>🐚 Раковины</span><b>'+num(state.shells)+'</b></div></div><h3>💎 Камни</h3>'+ (x.stones.length?x.stones.map(s=>'<div class="rowitem"><b>'+esc(s.color_name)+' · ур. '+s.level+'</b><span>×'+num(s.count)+'</span></div>').join(''):'<p class="sub">Камней пока нет — отправь краба копать.</p>')+'<h3>📦 Ресурсы</h3>'+x.resources.map(s=>'<div class="rowitem"><b>'+esc(s.name)+'</b><span>×'+num(s.count)+'</span></div>').join('')+'<h3>🎁 Сундуки</h3>'+ (x.chests.length?x.chests.map(s=>'<div class="rowitem"><b>'+esc(s.name)+'</b><span>×'+num(s.count)+' <button onclick="openChest(\''+s.key+'\')">Открыть</button></span></div>').join(''):'<p class="sub">Сундуков нет.</p>')+'<h3>🧪 Мутации в коллекции</h3>'+ (x.mutations.length?x.mutations.map(m=>'<div class="rowitem"><b>'+esc(m.name)+' · ур. '+m.level+'</b><span>'+(m.equipped?'Надето':'В коллекции')+'</span></div>').join(''):'<p class="sub">Мутаций пока нет.</p>');
+ }else if(currentView==='dig'){
+  title='⛏️ Копание';
+  const d=x.dig||{}, started=Number(d.start||0),duration=Number(d.duration||0),left=Math.max(0,duration-(Math.floor(Date.now()/1000)-started));
+  body=started? (left>0?'<div class="notice">Краб копает дно. Осталось примерно '+Math.ceil(left/60)+' минут.</div>':'<div class="notice">🎁 Копание завершено! Можно забрать добычу.</div><button class="btn gold" onclick="digCollect()">Забрать добычу</button>') :'<p class="sub">Выбери продолжительность экспедиции. Камни и ресурсы будут добавлены в инвентарь после сбора.</p><div class="choices">'+(d.hours||[2,4,16,24]).map(h=>'<button class="choice" onclick="digStart('+h+')"><span class="symbol">⛏️</span><span><b>'+h+' часов</b><small>Отправить краба добывать материалы</small></span></button>').join('')+'</div>';
+ }else if(currentView==='mutations'){
+  title='🧬 Лаборатория мутаций';
+  const owned=new Set(x.mutations.map(m=>m.key));
+  const passive=(x.catalog||[]);
+  body='<div class="sub">ДНК: '+num(state.dna_points)+' · Пассивные мутации работают постоянно. Активные занимают слоты.</div><h3>Мои мутации</h3>'+(x.mutations.length?x.mutations.map(m=>'<div class="rowitem"><b>'+esc(m.name)+' · ур. '+m.level+'</b><span>'+(m.active?(m.equipped?'<button onclick="mutAction(\'unequip\',\''+m.key+'\')">Снять</button>':'<button onclick="mutAction(\'equip\',\''+m.key+'\')">Надеть</button>'):'Пассивная')+' <button onclick="mutAction(\'upgrade\',\''+m.key+'\')">Улучшить</button></span></div>').join(''):'<p class="sub">Пока пусто.</p>')+'<h3>Открыть пассивные</h3>'+(x.passiveShop||[]).map(m=>'<div class="rowitem"><b>'+esc(m.name)+'</b><span>'+(owned.has(m.key)?'Есть':'<button onclick="mutAction(\'buy\',\''+m.key+'\')">Купить · '+num(m.cost)+' 🧬</button>')+'</span></div>').join('');
+ }else if(currentView==='craft'){
+  title='🍯 Лаборатория нектаров';
+  const nectar=x.nectar||{}, inv=nectar.nectars_inv||{};
+  body='<div class="sub">Надето: '+esc((x.nectars.find(n=>n.key===nectar.active_nectar)||{}).name||'ничего')+'</div>'+(nectar.active_nectar?'<button class="btn secondary" onclick="nectarAction(\'equip\',\'\')">Снять нектар</button>':'')+(x.nectars||[]).map(n=>'<div class="rowitem"><div><b>'+esc(n.name)+'</b><div class="sub">'+esc(n.desc)+'</div><small>В запасе: '+num(n.count)+'</small></div><span><button onclick="nectarAction(\'craft\',\''+n.key+'\')">Крафт</button>'+(n.count?'<button onclick="nectarAction(\'equip\',\''+n.key+'\')">Надеть</button>':'')+'</span></div>').join('');
+ }else if(currentView==='more'){
+  title='☰ Дополнительно';
+  body='<button class="choice" onclick="goView(\'shop\')"><span class="symbol">🛍️</span><span><b>Магазин</b><small>Покупки за раковины и Stars</small></span></button><button class="choice" onclick="redeemPromo()"><span class="symbol">🎟️</span><span><b>Промокод</b><small>Активировать код</small></span></button><button class="choice" onclick="goView(\'evolution\')"><span class="symbol">🌟</span><span><b>Эволюция</b><small>Выбор постоянных бонусов до линьки</small></span></button><button class="choice" onclick="goView(\'leaderboard\')"><span class="symbol">🏆</span><span><b>Топ игроков</b><small>Рейтинг глубины и линек</small></span></button><button class="choice" onclick="goView(\'stats\')"><span class="symbol">📊</span><span><b>Статистика</b><small>Твои игровые достижения</small></span></button><button class="choice" onclick="changeNickname()"><span class="symbol">✏️</span><span><b>Изменить ник</b><small>Один раз в 7 дней</small></span></button><button class="choice" onclick="goView(\'events\')"><span class="symbol">🐉</span><span><b>Мифические события</b><small>Боссы и общий рейтинг урона</small></span></button>';
+ }else if(currentView==='evolution'){
+  title='🌟 Древо эволюции';
+  const evo=x.evolution||{},tree=evo.tree||[],nodes=evo.nodes||{};
+  body='<div class="sub">Этап '+num(evo.stage||0)+' · доступно '+Math.max(0,Math.min(10,Math.floor(state.crab_level/50))-Number(evo.stage||0))+' очков</div>'+Object.entries(nodes).filter(([k,n])=>k.startsWith(x.crystal||'')&&!tree.includes(k)).map(([k,n])=>'<div class="rowitem"><b>'+esc(n.name)+'<div class="sub">'+esc(n.desc)+'</div></b><button onclick="evolutionPick(\''+k+'\')">Выбрать</button></div>').join('');
+ }else if(currentView==='leaderboard'){
+  title='🏆 Топ игроков';
+  body='<div class="loading">Загрузка рейтинга…</div>'; loadLeaderboard();
+ }else if(currentView==='stats'){
+  title='📊 Статистика';
+  const s=x.stats||{};
+  body='<div class="rowitem"><b>Всего заработано золота</b><span>'+num(s.total_gold)+'</span></div><div class="rowitem"><b>Всего ДНК получено</b><span>'+num(s.total_dna)+'</span></div><div class="rowitem"><b>Убито существ</b><span>'+num(s.kills)+'</span></div><div class="rowitem"><b>Убито боссов</b><span>'+num(s.boss_kills)+'</span></div><div class="rowitem"><b>Линьки</b><span>'+num(state.molts)+'</span></div><div class="rowitem"><b>Рекорд глубины</b><span>'+num(state.max_meters)+' м</span></div>';
+ }else if(currentView==='events'){
+  title='🐉 Мифические события';
+  body='<div class="notice">Линька доступна с 100 уровня. Она сбрасывает уровень, золото и эволюцию, но даёт ДНК. Это действие необратимо.</div><button class="btn gold" onclick="molt()" '+(state.crab_level<100?'disabled':'')+'>🦋 Провести линьку</button><div id="eventsbox" class="sub" style="margin-top:16px">Загружаем событие…</div>'; loadEvents();
+ }
+ app.innerHTML='<div class="top"><div class="brand">CRAB RPG<strong>ABYSS</strong></div><button class="avatar" onclick="goView(\'home\')">🦀</button></div><section class="panel"><div class="section-title">'+title+'</div>'+body+'</section>'+nav();
+}
+render=function(){if(currentView==='home'){renderHomeBase();app.insertAdjacentHTML('beforeend',nav())}else renderSection()};
+
+
+let shopData=null;
+async function loadShop(){try{shopData=await api('/api/shop');if(currentView==='shop')renderShop()}catch(e){toast(e.message)}}
+function renderShop(){const el=app.querySelector('.panel');if(!el||currentView!=='shop')return;el.innerHTML='<div class="section-title">🛍️ Магазин</div><div class="sub">Твои раковины: '+num(shopData.shells)+' 🐚</div><h3>За раковины</h3>'+shopData.shell_items.map(i=>'<div class="rowitem"><b>'+esc(i.title)+'<div class="sub">Цена: '+i.shells+' 🐚</div></b><button onclick="buyShell(\''+i.key+'\')">Купить</button></div>').join('')+'<h3>За Telegram Stars</h3>'+shopData.stars_items.map(i=>'<div class="rowitem"><b>'+esc(i.title)+'<div class="sub">'+esc(i.description)+'</div></b><span>'+i.stars+' ⭐ <button onclick="buyStars(\''+i.key+'\')">Купить</button></span></div>').join('')}
+window.buyStars=k=>action(async()=>{const r=await api('/api/shop/invoice','POST',{key:k});if(!tg?.openInvoice)throw new Error('Telegram invoice UI unavailable');tg.openInvoice(r.url,status=>{if(status==='paid'){toast('Платёж прошёл!');setTimeout(()=>refresh(),1500)}else if(status==='failed')toast('Платёж не прошёл');else if(status==='cancelled')toast('Покупка отменена')})});
+window.buyShell=k=>action(async()=>{const r=await api('/api/shop/shell','POST',{key:k});await loadExtra();await loadShop();toast(r.message)});
+window.openChest=k=>action(async()=>{const r=await api('/api/chest/open','POST',{key:k});await loadExtra();toast('Сундук открыт! Раковины: '+r.loot.shells+', камней: '+r.loot.stones.length+(r.loot.mutation?' · мутация получена':''))});
+window.redeemPromo=()=>{const code=prompt('Введи промокод:');if(code)action(async()=>{const r=await api('/api/promo','POST',{code});await refresh();toast('Промокод активирован!')})};
+
+window.molt=()=>{if(!confirm('Линька сбросит уровень, золото и эволюцию. Продолжить?'))return;action(async()=>{const r=await api('/api/molt','POST',{});state=r.state;currentView='home';await loadExtra();toast('Линька завершена! Получено '+num(r.dna)+' ДНК')})};
+async function loadEvents(){try{const r=await api('/api/events');const el=document.getElementById('eventsbox');if(!el)return;if(!r.unlocked){el.innerHTML='<h3>🐉 Ивенты закрыты</h3><p>Нужно выполнить хотя бы одно условие: '+r.requirements.molts+' линьки, рекорд '+r.requirements.meters+' м или '+r.requirements.kills+' убийств.</p>';return}if(!r.event){el.innerHTML='<h3>🌊 Активных ивентов нет</h3><p>События запускаются автоматически. Загляни позже.</p>';return}el.innerHTML='<h3>'+esc(r.event.name)+'</h3><p>'+esc(r.event.description)+'</p><h3>Урон игроков</h3>'+r.event.leaderboard.map((p,i)=>'<div class="rowitem"><b>#'+(i+1)+' '+esc(p.nickname)+'</b><span>'+num(p.damage)+'</span></div>').join('')}catch(e){toast(e.message)}}
+
+window.goView=async v=>{currentView=v;if(v==='home'){render();return}await loadExtra();render();if(v==='shop')await loadShop()};
+window.digStart=h=>action(async()=>{await api('/api/dig/start','POST',{hours:h});await loadExtra();toast('Краб отправлен копать!')});
+window.digCollect=()=>action(async()=>{const r=await api('/api/dig/collect','POST',{});await loadExtra();toast('Добыча собрана: '+r.stones.length+' камней, '+r.resources.length+' ресурсов')});
+window.mutAction=(a,k)=>action(async()=>{const r=await api('/api/mutations/action','POST',{action:a,key:k});await loadExtra();toast(a==='buy'?'Мутация приобретена!':a==='upgrade'?'Мутация улучшена!':'Экипировка обновлена')});
+window.nectarAction=(a,k)=>action(async()=>{await api('/api/nectar/action','POST',{action:a,key:k});await loadExtra();toast(a==='craft'?'Нектар создан!':'Нектар экипирован')});
+window.evolutionPick=k=>action(async()=>{await api('/api/evolution/pick','POST',{key:k});await loadExtra();toast('Эволюция выбрана!')});
+window.changeNickname=()=>{const n=prompt('Новый ник (3–16 символов):',state.nickname);if(n)action(async()=>{await api('/api/nickname','POST',{nickname:n});await refresh();toast('Ник изменён')})};
+async function loadLeaderboard(){try{const r=await api('/api/leaderboard');if(currentView==='leaderboard'){const p=app.querySelector('.panel');p.innerHTML='<div class="section-title">🏆 Топ игроков</div>'+r.players.map(x=>'<div class="rowitem"><b>#'+x.rank+' '+esc(x.nickname)+'<div class="sub">'+x.level+' ур. · '+x.molts+' линек · '+esc(x.zone)+'</div></b><span>'+num(x.meters)+' м</span></div>').join('')}}catch(e){toast(e.message)}}
+
+if(!initData){app.innerHTML='<div class="top"><div class="brand">CRAB RPG<strong>ABYSS</strong></div><div class="avatar">🦀</div></div><div class="panel"><div class="notice">Чтобы открыть игру, запусти Crab RPG в Telegram и нажми кнопку Web App. Внешний браузер не передаёт Telegram initData.</div></div>'}else refresh();
+})();
+</script>
+</body>
 </html>
