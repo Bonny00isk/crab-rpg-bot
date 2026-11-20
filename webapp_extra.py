@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """Additional authenticated Mini App features: inventory, dig, lab, evolution and social."""
 import json, time
-from aiohttp import web\nfrom aiogram.types import LabeledPrice
+from aiohttp import web
+from aiogram.types import LabeledPrice
 import database
 from data import (STONE_COLORS, RESOURCES, PASSIVE_MUTATIONS, ACTIVE_MUTATIONS,
                   NECTARS_DATA, EVOLUTION_NODES, DIG_DURATION_OPTIONS_HOURS,
@@ -231,7 +232,8 @@ def register_extra(app, auth, user_json, bot=None):
 
     app.router.add_get("/api/game-data",data)
     app.router.add_post("/api/molt",molt)
-    app.router.add_get("/api/shop",store_info)\n    app.router.add_post("/api/shop/invoice",stars_invoice)
+    app.router.add_get("/api/shop",store_info)
+    app.router.add_post("/api/shop/invoice",stars_invoice)
     app.router.add_post("/api/shop/shell",shell_shop)
     app.router.add_post("/api/promo",promo)
     app.router.add_post("/api/chest/open",open_chest)
