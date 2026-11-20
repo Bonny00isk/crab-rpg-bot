@@ -96,6 +96,10 @@ def _user_json(user):
             monster = json.loads(user["monster_json"])
             payload["battle"] = {
                 "name": monster.get("name", "Морское существо"),
+                "is_elite": bool(monster.get("is_elite")),
+                "camp_remaining": len(monster.get("camp_remaining", [])),
+                "unique_used": bool(monster.get("unique_used")),
+                "shield_cd": int(monster.get("shield_cd", 0)),
                 "hp": int(monster.get("hp", 0)),
                 "max_hp": int(monster.get("max_hp", 1)),
                 "meters": int(monster.get("meters", payload["cur_meters"] + 1)),
