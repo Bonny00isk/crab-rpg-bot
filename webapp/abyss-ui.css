@@ -1,0 +1,93 @@
+/* ABYSSAL RELIC — bespoke RPG interface */
+:root{
+ --bg:#090b12;--surface:#15151c;--surface-hi:#211c23;--stroke:#6f5942;
+ --aqua:#8bd6c7;--ice:#8db8d6;--gold:#d5ae70;--white:#f3e9d9;--dim:#a99c8e;--danger:#c96d70;
+ --abyss:#080b12;--metal:#3d342e;--metal-hi:#806b4e;--blood:#7c3038;--paper:#e6d1ad;
+}
+html,body{background:#080a10!important}
+body{
+ padding-left:13px;padding-right:13px;color:#eee4d5;
+ background:
+ radial-gradient(ellipse at 50% -10%,#3a2b2a 0%,#191923 33%,transparent 66%),
+ radial-gradient(ellipse at 0% 65%,#14253244,transparent 48%),
+ linear-gradient(180deg,#0b0c13,#080a10 70%,#05060a)!important;
+ font-family:Georgia,"Times New Roman",serif;letter-spacing:.015em;
+}
+body:before{opacity:.13;background-image:radial-gradient(circle,#d5ae70 0 1px,transparent 1.5px),radial-gradient(circle,#8bd6c7 0 1px,transparent 1.7px);background-size:113px 149px,197px 231px}
+main{max-width:570px;padding:0 2px}
+.top{padding:calc(16px + env(safe-area-inset-top)) 4px 14px}
+.brand{gap:11px;color:#c7a36b;font-size:8px;letter-spacing:3.3px;text-shadow:0 0 14px #d5ae7020}
+.brand strong{font-family:Georgia,serif;font-size:24px;letter-spacing:2px;color:#f1e2c8;text-shadow:0 2px 14px #000}
+.brand-mark{border-radius:12px;background:linear-gradient(145deg,#40342a,#15141a);border:1px solid #b28b55;box-shadow:inset 0 0 0 2px #18151a,inset 0 1px #f5d9a544,0 5px 15px #0008;color:#d9b77a}
+.avatar{width:45px;height:45px;border-radius:13px;font-size:22px;background:linear-gradient(145deg,#4a302b,#15141b);border:1px solid #98734d;box-shadow:inset 0 0 0 2px #17151a,inset 0 1px #f7d9a533,0 6px 18px #0008}
+.panel{
+ position:relative;isolation:isolate;overflow:hidden;margin:12px 0 15px;padding:19px 17px;
+ border:1px solid #796247;border-radius:17px;
+ background:linear-gradient(145deg,#242129f7 0%,#15151cf9 55%,#10131afc 100%);
+ box-shadow:inset 0 0 0 2px #0a0a10,inset 0 1px #e6c58b26,0 14px 30px #0008;
+ backdrop-filter:blur(10px)
+}
+.panel:before{content:"";position:absolute;inset:6px;z-index:-1;border:1px solid #725b3d66;border-radius:11px;pointer-events:none;background:linear-gradient(135deg,#d9b67b06,transparent 38%,#00000012)}
+.panel:after{content:"";position:absolute;z-index:-1;right:-85px;top:-95px;width:210px;height:210px;border:1px solid #c5a16b14;border-radius:50%;box-shadow:0 0 0 18px #c5a16b08,0 0 0 40px #c5a16b05;pointer-events:none}
+.hero{
+ min-height:280px;padding:20px 17px 16px;border-color:#a07c50;
+ background:radial-gradient(ellipse at 82% 22%,#8a55302a,transparent 48%),linear-gradient(145deg,#30252a,#1a1820 55%,#10141c);
+ box-shadow:inset 0 0 0 2px #0b0a10,inset 0 1px #f1d3a14a,0 17px 34px #0009
+}
+.hero:before{inset:7px;border-color:#a181594f;border-radius:12px}
+.hero:after{right:-60px;top:-50px;width:235px;height:235px;border-color:#cba66b20;box-shadow:0 0 0 22px #d4ad7009,0 0 0 48px #d4ad7006}
+.eyebrow{color:#c4a06b;font-family:system-ui,sans-serif;font-size:9px;letter-spacing:2px;font-weight:800}
+.name{font-family:Georgia,"Times New Roman",serif;font-weight:700;font-size:27px;letter-spacing:-.4px;color:#f4e8d5;text-shadow:0 3px 12px #0008}
+.rank{border-radius:7px;padding:7px 10px;color:#e8c88e;background:linear-gradient(180deg,#4d3928,#241b18);border:1px solid #b28b55;box-shadow:inset 0 1px #f4d9a144,inset 0 0 0 2px #1c1716;font-family:system-ui,sans-serif}
+.crab-art{filter:drop-shadow(0 12px 16px #0009);animation:relicFloat 4.8s ease-in-out infinite}
+.crab-art:before{border:1px solid #c9a56c55;background:radial-gradient(circle,#bb855333,#172c3b09 62%,transparent 75%);box-shadow:0 0 35px #c6a16816,inset 0 0 20px #d9b67b12}
+.crab-art:after{border:1px dashed #d6b57b3a;box-shadow:0 0 0 14px #c6a16808}
+.crab-svg{filter:drop-shadow(0 0 7px #73d4c32a)}
+.stat{padding:11px 9px;border-radius:10px;border:1px solid #594a3a;background:linear-gradient(145deg,#29242a,#15151d);box-shadow:inset 0 0 0 2px #0c0b11,inset 0 1px #f0d6a11a}
+.stat span{color:#b6a28a;font-family:system-ui,sans-serif;font-size:8px;letter-spacing:.2px}
+.stat b{color:#f1e4ce;font-family:system-ui,sans-serif;font-size:17px;font-weight:850}
+.section-title{font-family:Georgia,"Times New Roman",serif;font-size:19px;letter-spacing:.15px;color:#f0dfc4;margin:2px 0 15px}
+.section-title:before{width:4px;height:20px;background:linear-gradient(#f1d49a,#91683d);box-shadow:0 0 10px #d5ae7030}
+.panel h3{margin:21px 0 10px;color:#d5b37a;font-family:system-ui,sans-serif;font-size:12px;letter-spacing:1px;text-transform:uppercase}
+.sub{color:#b4a696;font-family:system-ui,-apple-system,sans-serif;font-size:11px;line-height:1.6}
+.btn{
+ position:relative;min-height:48px;border-radius:9px;padding:13px 12px;
+ color:#20170e;background:linear-gradient(180deg,#e4c58c 0%,#c19a5e 48%,#8e683c 100%);
+ border:1px solid #f0d7a1;box-shadow:inset 0 0 0 2px #5c4228,inset 0 1px #fff0c7aa,0 6px 13px #0007;
+ font-family:system-ui,sans-serif;font-size:12px;font-weight:850;letter-spacing:.15px;text-shadow:0 1px #f7e4b455
+}
+.btn:after{content:"";position:absolute;inset:4px;border:1px solid #f0d7a14d;border-radius:5px;pointer-events:none}
+.btn.primary-action{min-height:59px;font-size:14px;background:linear-gradient(180deg,#e7c98e,#bd9253 55%,#886039);color:#21160d}
+.btn.secondary,.btn.secondary-action{color:#e6d6bc;background:linear-gradient(180deg,#393039,#211d25 55%,#15151c);border:1px solid #796247;box-shadow:inset 0 0 0 2px #0d0c12,inset 0 1px #e4c38b2a,0 6px 13px #0006;text-shadow:none}
+.btn.gold{background:linear-gradient(180deg,#e7c98e,#bd9253 55%,#886039);color:#24180d;border-color:#e8c98e}
+.btn:disabled{opacity:.38;filter:grayscale(.7)}
+.quick-strip{gap:8px}
+.choice{border-radius:12px;padding:13px;background:linear-gradient(145deg,#2a252b,#17161e);border:1px solid #65513b;box-shadow:inset 0 0 0 2px #0b0a10,inset 0 1px #e9c98b20,0 7px 16px #0006}
+.choice:hover{border-color:#c8a36a}
+.choice .symbol{border-radius:10px;background:linear-gradient(145deg,#47362c,#1b1820);border:1px solid #917044;box-shadow:inset 0 0 0 2px #151219;color:#dfbd7d}
+.choice b{font-family:system-ui,sans-serif;color:#f1e3ce;font-size:12px}
+.choice small{font-family:system-ui,sans-serif;color:#b5a48e;font-size:10px}
+.rowitem{padding:13px 0;border-bottom:1px solid #574633;color:#e7d8c1;font-family:system-ui,sans-serif}
+.rowitem b{color:#eee0ca;font-size:12px}
+.rowitem button,.rowitem span button{border-radius:7px;padding:8px 10px;color:#ead6b4;background:linear-gradient(180deg,#40343a,#211b22);border:1px solid #806346;font-size:10px;font-weight:800}
+.notice{padding:14px;border-radius:10px;color:#e9c98d;background:linear-gradient(145deg,#34272a,#1a171e);border:1px solid #8c6349;box-shadow:inset 0 0 0 2px #0d0b10;font-family:system-ui,sans-serif}
+.bar{height:10px;border-radius:5px;background:#08090e;border:1px solid #6d5940;box-shadow:inset 0 1px 3px #000}
+.bar i{background:linear-gradient(90deg,#8d3d42,#dca15e);box-shadow:0 0 12px #bd655433}
+.battle{border-color:#9b5153;background:radial-gradient(ellipse at top,#6b30352e,transparent 62%),linear-gradient(145deg,#302126,#15151c)}
+.monster{filter:drop-shadow(0 7px 13px #0009)}
+.log{border-radius:9px;background:#0d0e15;border-color:#59483a;color:#d6c4aa;font-family:system-ui,sans-serif}
+.appnav{background:linear-gradient(180deg,#1a171ef7,#090a10fc);border-top:1px solid #6b543a;box-shadow:0 -8px 30px #0009}
+.appnav button{font-family:system-ui,sans-serif;color:#9c8c78;font-size:8px}
+.appnav button span{width:30px;height:26px;font-size:18px;filter:grayscale(.25)}
+.appnav button.active{color:#e4c184;background:linear-gradient(180deg,#8d643126,#241b1b99)}
+.appnav button.active:before{background:#e0bd7b;box-shadow:0 0 12px #d5ae7055}
+.toast{border-radius:10px;background:linear-gradient(145deg,#30252b,#11131a);border:1px solid #9b7b50;box-shadow:inset 0 0 0 2px #0b0a10,0 14px 35px #0009;color:#f2e2c9;font-family:system-ui,sans-serif}
+input,select,textarea{background:#11131b!important;color:#eee0ca!important;border:1px solid #725a40!important;border-radius:8px!important;box-shadow:inset 0 0 0 2px #090a10!important}
+.footer{color:#796b5b;font-family:system-ui,sans-serif;letter-spacing:1px;font-size:9px}
+.loading{color:#c0a16f;font-family:system-ui,sans-serif}
+.spinner{border-color:#423329;border-top-color:#d9b77a;box-shadow:0 0 15px #d5ae7018}
+#app>.panel{margin-top:8px}
+#app>.top+.panel{margin-top:8px}
+@keyframes relicFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+@media(max-width:360px){.panel:not(.hero){padding:15px 13px}.hero{padding:15px}.stat b{font-size:15px}.brand strong{font-size:21px}}
+@media(prefers-reduced-motion:reduce){.crab-art{animation:none}}
