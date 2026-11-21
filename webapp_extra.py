@@ -344,8 +344,10 @@ def register_extra(app, auth, user_json, bot=None):
             if not row: row={"cycle":1,"day_index":0,"last_claim_date":None}
             claims=conn.execute("SELECT cycle,day_index,claimed_date FROM daily_reward_claims WHERE user_id=%s ORDER BY cycle,day_index",(uid,)).fetchall()
         claimed_today=row.get("last_claim_date")==today
-        next_day=0 if claimed_today else (1 if int(row["day_index"])>=31 else int(row["day_index"])+1)
-        return {"cycle":int(row["cycle"]),"day_index":int(row["day_index"]),"claimable_day":next_day,"claimed_today":claimed_today,"today":today,"claims":[{"cycle":int(x["cycle"]),"day":int(x["day_index"]),"date":x["claimed_date"]} for x in claims],"rewards":DAILY_REWARDS}
+        cycle=int(row["cycle"]); progress=int(row["day_index"])
+        if progress>=31 and not claimed_today: cycle+=1; progress=0
+        next_day=0 if claimed_today else progress+1
+        return {"cycle":cycle,"day_index":progress,"claimable_day":next_day,"claimed_today":claimed_today,"today":today,"claims":[{"cycle":int(x["cycle"]),"day":int(x["day_index"]),"date":x["claimed_date"]} for x in claims],"rewards":DAILY_REWARDS}
     async def daily_rewards_state(request):
         uid,_=auth(request)
         if not await database.run_async(database.get_user,uid): raise web.HTTPNotFound(text="Profile not found")
