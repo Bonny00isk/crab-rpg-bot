@@ -330,6 +330,54 @@ def register_extra(app, auth, user_json, bot=None):
         if not ok: raise web.HTTPNotFound(text="Active promo not found")
         return web.json_response({"ok":True})
 
+    DAILY_REWARDS = [
+        {"gold":100,"label":"100 золота","icon":"coin"},{"dna":3,"label":"3 ДНК","icon":"dna"},{"shells":2,"label":"2 раковины","icon":"shell"},{"gold":150,"label":"150 золота","icon":"coin"},{"chest":"1","label":"Жемчужный сундук","icon":"chest"},{"gold":200,"label":"200 золота","icon":"coin"},{"chest":"1","label":"Жемчужный сундук","icon":"chest"},{"dna":5,"label":"5 ДНК","icon":"dna"},{"shells":3,"label":"3 раковины","icon":"shell"},{"gold":300,"label":"300 золота","icon":"coin"},{"chest":"2","label":"Золотой сундук","icon":"chest"},{"dna":8,"label":"8 ДНК","icon":"dna"},{"gold":350,"label":"350 золота","icon":"coin"},{"chest":"2","label":"Золотой сундук","icon":"chest"},{"shells":5,"label":"5 раковин","icon":"shell"},{"gold":450,"label":"450 золота","icon":"coin"},{"dna":10,"label":"10 ДНК","icon":"dna"},{"chest":"2","label":"Золотой сундук","icon":"chest"},{"gold":500,"label":"500 золота","icon":"coin"},{"shells":6,"label":"6 раковин","icon":"shell"},{"chest":"3","label":"Роскошный сундук","icon":"chest"},{"dna":15,"label":"15 ДНК","icon":"dna"},{"gold":600,"label":"600 золота","icon":"coin"},{"shells":8,"label":"8 раковин","icon":"shell"},{"chest":"3","label":"Роскошный сундук","icon":"chest"},{"gold":750,"label":"750 золота","icon":"coin"},{"dna":20,"label":"20 ДНК","icon":"dna"},{"chest":"3","label":"Роскошный сундук","icon":"chest"},{"shells":10,"label":"10 раковин","icon":"shell"},{"gold":1000,"dna":15,"label":"1000 золота + 15 ДНК","icon":"treasure"},{"chest":"3","shells":20,"gold":1500,"label":"Роскошный сундук + 20 раковин + 1500 золота","icon":"crown"}
+    ]
+    def _daily_today():
+        from datetime import datetime, timezone
+        return datetime.now(timezone.utc).date().isoformat()
+    def _daily_state(uid):
+        from contextlib import closing
+        today=_daily_today()
+        with closing(database.get_conn()) as conn, conn:
+            row=conn.execute("SELECT cycle,day_index,last_claim_date FROM daily_reward_progress WHERE user_id=%s",(uid,)).fetchone()
+            if not row: row={"cycle":1,"day_index":0,"last_claim_date":None}
+            claims=conn.execute("SELECT cycle,day_index,claimed_date FROM daily_reward_claims WHERE user_id=%s ORDER BY cycle,day_index",(uid,)).fetchall()
+        claimed_today=row.get("last_claim_date")==today
+        next_day=0 if claimed_today else (1 if int(row["day_index"])>=31 else int(row["day_index"])+1)
+        return {"cycle":int(row["cycle"]),"day_index":int(row["day_index"]),"claimable_day":next_day,"claimed_today":claimed_today,"today":today,"claims":[{"cycle":int(x["cycle"]),"day":int(x["day_index"]),"date":x["claimed_date"]} for x in claims],"rewards":DAILY_REWARDS}
+    async def daily_rewards_state(request):
+        uid,_=auth(request)
+        if not await database.run_async(database.get_user,uid): raise web.HTTPNotFound(text="Profile not found")
+        return web.json_response(await database.run_async(_daily_state,uid))
+    async def daily_rewards_claim(request):
+        uid,_=auth(request)
+        def claim_atomic():
+            from contextlib import closing
+            today=_daily_today()
+            with closing(database.get_conn()) as conn, conn.transaction():
+                if not conn.execute("SELECT user_id FROM users WHERE user_id=%s FOR UPDATE",(uid,)).fetchone(): raise ValueError("Profile not found")
+                row=conn.execute("SELECT cycle,day_index,last_claim_date FROM daily_reward_progress WHERE user_id=%s FOR UPDATE",(uid,)).fetchone()
+                if not row:
+                    conn.execute("INSERT INTO daily_reward_progress(user_id,cycle,day_index,last_claim_date) VALUES(%s,1,0,NULL) ON CONFLICT(user_id) DO NOTHING",(uid,))
+                    row=conn.execute("SELECT cycle,day_index,last_claim_date FROM daily_reward_progress WHERE user_id=%s FOR UPDATE",(uid,)).fetchone()
+                if row["last_claim_date"]==today: raise RuntimeError("Ежедневная награда уже получена. Возвращайся завтра.")
+                cycle=int(row["cycle"]); day=int(row["day_index"])+1
+                if day>31: cycle+=1; day=1
+                reward=dict(DAILY_REWARDS[day-1])
+                conn.execute("UPDATE users SET gold=gold+%s,dna_points=dna_points+%s,nautilus_shells=nautilus_shells+%s WHERE user_id=%s",(int(reward.get("gold",0)),int(reward.get("dna",0)),int(reward.get("shells",0)),uid))
+                if reward.get("chest"):
+                    conn.execute("INSERT INTO chests(user_id,chest_type,count) VALUES(%s,%s,1) ON CONFLICT(user_id,chest_type) DO UPDATE SET count=chests.count+1",(uid,str(reward["chest"])))
+                conn.execute("INSERT INTO daily_reward_claims(user_id,cycle,day_index,claimed_date,reward_json) VALUES(%s,%s,%s,%s,%s)",(uid,cycle,day,today,json.dumps(reward,ensure_ascii=False)))
+                conn.execute("INSERT INTO daily_reward_progress(user_id,cycle,day_index,last_claim_date) VALUES(%s,%s,%s,%s) ON CONFLICT(user_id) DO UPDATE SET cycle=EXCLUDED.cycle,day_index=EXCLUDED.day_index,last_claim_date=EXCLUDED.last_claim_date",(uid,cycle,day,today))
+                return {"day":day,"cycle":cycle,"reward":reward}
+        try: result=await database.run_async(claim_atomic)
+        except RuntimeError as exc: raise web.HTTPConflict(text=str(exc))
+        except ValueError as exc: raise web.HTTPNotFound(text=str(exc))
+        return web.json_response({"ok":True,**result,"state":await database.run_async(_daily_state,uid)})
+
+    app.router.add_get("/api/daily-rewards",daily_rewards_state)
+    app.router.add_post("/api/daily-rewards/claim",daily_rewards_claim)
     app.router.add_get("/api/game-data",data)
     app.router.add_post("/api/molt",molt)
     app.router.add_get("/api/shop",store_info)
