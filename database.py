@@ -65,6 +65,17 @@ def init_db():
             max_uses INTEGER DEFAULT 0, used_count INTEGER DEFAULT 0,
             expires_at BIGINT DEFAULT 0, active INTEGER DEFAULT 1,
             created_at BIGINT NOT NULL)""",
+        """CREATE TABLE IF NOT EXISTS daily_reward_progress (
+            user_id BIGINT PRIMARY KEY REFERENCES users(user_id) ON DELETE CASCADE,
+            cycle INTEGER NOT NULL DEFAULT 1, day_index INTEGER NOT NULL DEFAULT 0,
+            last_claim_date TEXT
+        )""",
+        """CREATE TABLE IF NOT EXISTS daily_reward_claims (
+            user_id BIGINT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+            cycle INTEGER NOT NULL, day_index INTEGER NOT NULL,
+            claimed_date TEXT NOT NULL, reward_json TEXT NOT NULL,
+            PRIMARY KEY(user_id,cycle,day_index)
+        )""",
         "CREATE INDEX IF NOT EXISTS idx_users_molts_level ON users(molts DESC, crab_level DESC)",
         "CREATE INDEX IF NOT EXISTS idx_events_active_id ON events(active, id DESC)",
         "CREATE INDEX IF NOT EXISTS idx_event_damage_event_damage ON event_damage(event_id, damage DESC)",
