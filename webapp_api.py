@@ -372,6 +372,7 @@ def setup_webapp(app, bot=None):
     app.router.add_get("/app", lambda request: web.FileResponse("webapp/index.html"))
     app.router.add_get("/app/", lambda request: web.FileResponse("webapp/index.html"))
     app.router.add_get("/app/abyss-ui.css", lambda request: web.FileResponse("webapp/abyss-ui.css"))
+    app.router.add_get("/app/relic-ui.css", lambda request: web.FileResponse("webapp/relic-ui.css"))
     app.router.add_get("/api/state", api_state)
     app.router.add_post("/api/choose-crab", api_choose_crab)
     app.router.add_post("/api/level-up", api_level_up)
