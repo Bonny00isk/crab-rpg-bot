@@ -64,7 +64,7 @@ def _user_json(user):
         "nickname": user.get("nickname") or "Краб",
         "crab_type": crab_type,
         "crab_name": CRABS.get(crab_type, {}).get("name", "Краб"),
-        "unique": UNIQUE_ABILITIES.get(int(crab_type), {}),
+        "unique": UNIQUE_ABILITIES.get(int(crab_type), {}) if crab_type is not None else {},
         "crab_level": int(user.get("crab_level") or 1),
         "molts": int(user.get("molts") or 0),
         "gold": int(user.get("gold") or 0),
